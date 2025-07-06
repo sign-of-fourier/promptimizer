@@ -106,7 +106,7 @@ def kick_off(input_path, output_path, job_id):
 
 
 
-check_status_form = """<html><br><body><p>
+check_status_form = """<html><title>Quante Carlo</title><br><body><p>
 <form action="/check_status?use_case={}&next_action={}" method="POST" enctype="multipart/form-data">
 <br>
 <table border=1>
@@ -242,17 +242,36 @@ def prompt_preview():
     </tr>
     <tr>
         <td></td>
-        <td><b>Task System</b>The promptimizer will write your user prompt for the task but not the system prompt. It will use the same one each time.</td>
+        <td stype="width:60px"><b>Task System</b> Accompanies the prompt to be written.</td>
         <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
         <td></td>
     </tr>
     <tr>
         <td></td>
         <td><b>JSON key</b> for label. Should match the prompt.</td>
-        <td><input type="text" name="label" value="{}"></input</td>
+        <td><input width=70 type="text" name="label" value="{}"></input</td>
         <td></td>
     </tr>
-
+    <tr>
+        <td></td>
+        <td><b>Model</b></td>
+        <td>
+            <select name="model">
+                <option value="aws_nova_micro">AWS Nova Micro</option>
+                <option value="llama_31">Llama 3.1</option>
+            </select>
+        </td>
+        <td></td>
+    </tr>
+    <tr>
+        <td></td>
+        <td><b>Evaluator</b></td>
+        <td><select name="evaluator">
+            <option value="accuracy">accuracy</otioin>
+            <option value="auc">AUC</option>
+            </select></td>
+        <td></td>
+    </tr>
     <tr>
         <td></td>
         <td></td>
@@ -261,7 +280,8 @@ def prompt_preview():
     </tr>
 </table>
 </form>
-""".format(use_case, prompt_library.writer_system, prompt_library.writer_user, prompt_library.seperator, prompt_library.task_system, prompt_library.label_name)
+""".format(use_case, prompt_library.writer_system, prompt_library.writer_user, prompt_library.seperator, 
+           prompt_library.task_system, prompt_library.label_name)
 
 
 hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
@@ -271,10 +291,13 @@ bucket = 'sagemaker-us-east-2-344400919253'
 @app.route("/enumerate_prompts", methods=['POST'])
 def enumerate_prompts():
     
+
+
     try:
         client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
     except Exception as e:
+        print('Failed to get boto3')
         return e
     n_rows = request.args.get('rows', '')
     use_case = request.args.get('use_case', '')
@@ -306,18 +329,19 @@ def enumerate_prompts():
 
         jobArn = kick_off('s3://' + bucket + '/' + key_path + '/input/' + filename, 's3://' + bucket + '/' + key_path + '/output/', random_string)
 
-        #jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/q0m0pnbxypjp"
-        #random_string = "wTdxZq0iJZr4GDR1"
-        #key_path = "batch_jobs/promptimizer/medical_diagnosis/2025-06-29"
+        #jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/4rsf57id8tvu"
+        #random_string = "g9FhH5JGLjcrOjVG"
+        #key_path = "batch_jobs/promptimizer/ai_detector/2025-07-06"
         with open('/tmp/' + random_string + '.jsonl', 'w') as f:
              f.write("\n".join(jsonl))
 
 
+        hidden_variables = ''
+        for h in ['seperator', 'label', 'task_system', 'model', 'evaluator']:
+            hidden_variables += hidden.format(h, request.form[h]) 
+
         message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes and use the job_ids and key_paths below."
-        return check_status_form.format(use_case, 'optimize', message, 
-                                        hidden.format('seperator', seperator) + hidden.format('label', label) +\
-                                                hidden.format('task_system', task_system), 
-                                        jobArn, key_path, random_string)        
+        return check_status_form.format(use_case, 'optimize', message, hidden_variables, jobArn, key_path, random_string)        
     else:
         return 'The form is wrong'
 
@@ -337,7 +361,7 @@ def check_status():
     use_case = request.args.get('use_case')
     #hidden_variables = request.form['hidden_variables']
     hidden_variables = ''
-    for v in ['seperator', 'label', 'task_system']:
+    for v in ['seperator', 'label', 'task_system', 'evaluator', 'model']:
         hidden_variables += hidden.format(v, request.form[v])
     status = boto3_bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
     if status == 'Completed':
@@ -347,10 +371,9 @@ def check_status():
         elif next_step == 'iterate':
             prompt_filename_id = request.form['prompt_filename_id']
             training_data_filename = request.form['training_data_filename']
-            print(filename_id)
             return bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_filename, 
-                         request.form['seperator'], 
-                         request.form['label'], request.form['task_system'], request.form['filename_ids'])
+                         request.form['seperator'],  request.form['label'], request.form['task_system'], 
+                         request.form['filename_ids'], request.form['evaluator'], request.form['model'])
 
 
         #    return optimize_form.format(message, hidden_variables, filename + '.jsonl', key_path)
@@ -358,11 +381,6 @@ def check_status():
     else:
         return f"<html><br><br>&nbsp; &nbsp; &nbsp; Status {status}\n<br>&nbsp; &nbsp; &nbsp; Use your back button to check again in a little while. &nbsp;"
 
-
-#  @app.route("/optimize", methods=["POST"])
-#  def optimize():
-#     n<br>\n{random_string}\n"
-#     jobArn = response.get(')
 
     return 'success!'
 
@@ -389,6 +407,8 @@ def pre_optimize():
      seperator = request.form['seperator']
      label = request.form['label']
      task_system = request.form['task_system']
+     evaluator = request.form['evaluator']
+     model = request.form['model']
 
      if not request.files['data'].filename:
 
@@ -400,10 +420,11 @@ def pre_optimize():
      training_data_filename = request.files['data'].filename
 
 
-     return optimize(range(4), use_case, task_system, seperator, key_path, training_data_filename, filename_id, label)
+     return optimize(range(4), use_case, task_system, seperator, key_path, training_data_filename, 
+                     filename_id, label, evaluator, model)
 
 def optimize(ids, use_case, task_system, seperator, key_path, training_data_filename, 
-             prompt_filename_id, label, filename_ids = '', performance_report = ''):
+             prompt_filename_id, label, evaluator, model, filename_ids = '', performance_report = ''):
 
      try:
          df = pd.read_csv('/tmp/' + training_data_filename)
@@ -418,7 +439,7 @@ def optimize(ids, use_case, task_system, seperator, key_path, training_data_file
          preview_data = '<table border=1><tr><td></td><td>Data Preivew</td><td></td></tr>'
          for x in range(min(3, df.shape[0])):
              preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
-             preview_data += "    <td>" + df['output'].iloc[x] + "</td>\n</tr>\n"
+             preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
          preview_data += "</table>"
          #print(preview_data)
 
@@ -474,13 +495,14 @@ def optimize(ids, use_case, task_system, seperator, key_path, training_data_file
                    )
 
 
-    # jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/pt29kj7ots60"
-    # random_string = "a2Wkk7L1PopOGM4Z"
-    # output_key_path = "batch_jobs/promptimizer/medical_diagnosis/2025-06-29"
+     #jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/b2zk81jz42d1"
+     #random_string = "x5psWuARccJ6Jg6S"
+     #output_key_path = "batch_jobs/promptimizer/ai_detector/2025-07-06"
 
      hidden_variables = hidden.format('training_data_filename', training_data_filename)+\
              hidden.format('seperator', seperator) + hidden.format('prompt_filename_id', prompt_filename_id)+\
-             hidden.format('label', label) + hidden.format('task_system', task_system) + hidden.format('filename_ids', filename_ids)
+             hidden.format('label', label) + hidden.format('task_system', task_system) + hidden.format('filename_ids', filename_ids)+\
+             hidden.format('evaluator', evaluator) + hidden.format('model', model)
      print('kicking off new job')
      jobArn = kick_off('s3://' + bucket + '/' + key_path + '/input/' + output_filename, 's3://' + bucket + '/' + key_path + '/output/', random_string)
      if len(performance_report) > 0:
@@ -522,14 +544,13 @@ def get_embeddings(input_text):
 
 
 
-def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_filename, seperator, label, task_system, filename_ids):
+def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_filename, seperator, 
+          label, task_system, filename_ids, evaluator, model):
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
     sub_directories = s3.list_objects_v2(Bucket = bucket, Prefix = key_path + '/output')
     jsonl = []
-    print('key_path', key_path)
-    print('filename_ids', filename_ids)
 
 
     if len(filename_ids) < 1:
@@ -547,10 +568,9 @@ def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_fil
                 obj = s3.get_object(Bucket=bucket, Key=subdir['Key'])
                 jsonl[i] = obj['Body'].read().decode('utf-8').split("\n")
 
-    print(filename_id, len(jsonl.keys()))
 
     try:
-        df = pd.read_csv(training_data_filename)
+        df = pd.read_csv('/tmp/' + training_data_filename)
     except TypeError:
         print('failed to read. Trying windows.')
         df = pd.read_csv(training_data_filename, encoding='unicode_escape')
@@ -558,6 +578,127 @@ def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_fil
     #input_prompts = []
     #scores = []
     #record_ids = []
+
+
+    if evaluator == 'accuracy':
+        scores_by_prompt, performance_report = accuracy(jsonl, df, filename_id, label)
+    elif evaluator == 'auc':
+        scores_by_prompt, performance_report = auc(jsonl, df, filename_id, label)
+    else:
+        print("ERROR NO Evaluator")
+
+
+    obj = s3.get_object(Bucket=bucket, Key=key_path + '/embeddings/' + prompt_filename_id)
+    embeddings_raw = obj['Body'].read().decode('utf-8').split("\n")
+    embeddings_raw = [[float(x) for x in e.split(',')] for e in embeddings_raw]
+    scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
+    unscored_embeddings = []
+    unscored_embeddings_id_map = {}
+
+    ct = 0
+    for x in range(len(embeddings_raw)):
+        if str(x) not in scores_by_prompt.keys():
+            unscored_embeddings.append(embeddings_raw[x])
+            unscored_embeddings_id_map[ct] = x
+            ct += 1
+
+    Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
+
+    gpr = GaussianProcessRegressor(kernel = Matern() + WhiteKernel())
+    scores_ecdf = ecdf(Q)
+    # convert to lognormal
+    transformed_scores = np.log(lognorm.ppf(scores_ecdf.cdf.evaluate(Q) * .999 + .0005, 1))
+    gpr.fit(scored_embeddings, transformed_scores)
+    mu, sigma = gpr.predict(unscored_embeddings, return_cov=True)
+
+
+    batch_size = 3
+    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, 24, batch_size)
+    best_idx = bbo.get_best_batch(batch_mu, batch_sigma, batch_size)
+    performance_report += "Best: {}\n".format(max(Q))
+    print(batch_idx[best_idx])
+    print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
+
+    return optimize([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], use_case, task_system,
+                    seperator, key_path, training_data_filename, prompt_filename_id, label, evaluator, model,
+                    filename_ids, performance_report)
+
+
+from sklearn.metrics import roc_auc_score
+
+def auc(jsonl, df, filename_id, label):
+
+
+    report = ""
+    total_collect_scores = {}
+    for iteration in jsonl.keys():
+        scores = {}
+        truth = {}
+        for answer in jsonl[iteration]:
+            try:
+                j = json.loads(answer)
+                output = j['modelOutput']['output']['message']['content'][0]['text']
+                r = j['recordId'].split('_')
+                m = re.findall(r'(\{.*?\})', output, re.DOTALL)
+                if len(m) > 0:
+                    try:
+                        s = json.loads(re.sub('{{', '{', m[0]))[label]
+                        if r[1] not in scores.keys():
+                            scores[r[1]] = []
+                            truth[r[1]] = []
+                        if s == 'very likely':
+                            scores[r[1]].append(.9)
+                        elif s == 'likely':
+                            scores[r[1]].append(.7)
+                        elif s == 'unlikely':
+                            scores[r[1]].append(.3)
+                        elif s == 'very unlikely':
+                            scores[r[1]].append(.1)
+                        else:
+                            scores[r[1]].append(.5)
+
+                        truth[r[1]].append(df['output'].iloc[int(r[3])])
+              #          if o:
+              #              truth[r[1]].append(1)
+              #          else:
+              #              truth[r[1]].append(0)
+                    except Exception as e:
+                        print(e)
+                        print('JSON issue', m[0], r, iteration)
+                
+                else:
+                    print("NO matching json {}".format(r[1]))
+                    with open('/tmp/' + filename_id + '.log', 'a') as f:
+                        f.write(output)
+            except Exception as e:
+                print(e)
+                with open('/tmp/' + filename_id + '.' + str(iteration) + '.log', 'a') as f:
+                    f.write(answer)
+
+                print("bad json {} {} {}".format(filename_id, r[1], [3]))
+
+        collect_scores = {}
+        report += f"Iteration {iteration}\n"
+        print(iteration, 'scores', scores.keys())
+        for k in scores.keys():
+            if (sum([1 for x in truth[k] if x == 0]) == 0) | (sum([1 for x in truth[k] if x == 1]) == 0):
+                print('Single Class: AUC undefined {}'.format(k))
+                collect_scores[k] = 0
+                total_collect_scores[k] = 0
+            else:
+                auc_score = roc_auc_score(truth[k], scores[k])
+                print("collectiong", k)
+                collect_scores[k] = auc_score
+                total_collect_scores[k] = auc_score
+
+                report += f"- {k} {auc_score}\n"
+    
+    return total_collect_scores, report
+
+
+
+
+def accuracy(jsonl, df, filename_id, label):
     performance_report = ""
     total_collect_scores = {}
     #results = [json.loads(model)['modelOutput']['output']['message']['content'][0]['text'] 
@@ -599,7 +740,6 @@ def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_fil
                 total_collect_scores[rid[1]] = [score ==  df['output'].iloc[int(rid[3])]]
 
 
-        print("iteration", iteration)
         best = 0
         best_prompt = -1
         performance_report += f"iteration: {iteration}\n"
@@ -608,7 +748,6 @@ def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_fil
                 best =  sum(collect_scores[k])
                 best_prompt = k
             performance_report += "- prompt {} {}\n".format(k, sum(collect_scores[k]))
-            print("prompt {} {}".format(k, sum(collect_scores[k])))
         performance_report += "Best: {}, ID of Best Prompt {}\n".format(best, best_prompt)
 
     if (len(total_collect_scores.keys()) < 2) | (total_collect_scores == {}):
@@ -629,47 +768,7 @@ def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_fil
     performance_report += "Best: {}, ID of Best Prompt {}\n".format(best, best_prompt)
 
 
-
-
-
-    Q = [sum(total_collect_scores[k]) for k in total_collect_scores.keys()]
-
-    obj = s3.get_object(Bucket=bucket, Key=key_path + '/embeddings/' + prompt_filename_id) 
-    embeddings_raw = obj['Body'].read().decode('utf-8').split("\n")
-    embeddings_raw = [[float(x) for x in e.split(',')] for e in embeddings_raw]
-    scored_embeddings = [embeddings_raw[int(r)]  for r in total_collect_scores.keys()]
-    unscored_embeddings = []
-    unscored_embeddings_id_map = {}
-
-    ct = 0
-    for x in range(len(embeddings_raw)):
-        if str(x) not in total_collect_scores.keys():
-            unscored_embeddings.append(embeddings_raw[x])
-            unscored_embeddings_id_map[ct] = x
-            ct += 1
-
-
-
-    print('running GPR')
-    gpr = GaussianProcessRegressor(kernel = Matern() + WhiteKernel())
-    scores_ecdf = ecdf(Q)
-    # convert to lognormal
-    transformed_scores = np.log(lognorm.ppf(scores_ecdf.cdf.evaluate(Q) * .999 + .0005, 1))
-    gpr.fit(scored_embeddings, transformed_scores)
-    mu, sigma = gpr.predict(unscored_embeddings, return_cov=True)
-
-
-    batch_size = 3
-    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, 24, batch_size)
-    best_idx = bbo.get_best_batch(batch_mu, batch_sigma, batch_size)
-    print(max(Q))
-    print(batch_idx[best_idx])
-    print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
-    print(filename_ids)
-
-    return optimize([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], use_case, task_system, 
-                    seperator, key_path, training_data_filename, prompt_filename_id, label, 
-                    filename_ids, performance_report)
+    return total_collect_scores, performance_report
 
 
 
@@ -712,7 +811,6 @@ def random_initialize(key_path,filename_id, seperator, use_case, df):
      evaluation_jsonl = []
      for job_id in range(4):
          model = json.loads(jsonl[job_id])
-         print( model['modelOutput']['output']['message']['content'][0]['text'] )
          for i, text in enumerate(df['input']):
              query = {"recordId":  "QUERY_{}_RECORD_{}".format(job_id, i), 
                        "modelInput": {"schemaVersion": "messages-v1", 
@@ -736,8 +834,8 @@ def random_initialize(key_path,filename_id, seperator, use_case, df):
                    )
 
      
-     jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/0ck0yaak1bi2"
-     random_string = "M7bYy5ghpne0Xjxr"
+     #jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/0ck0yaak1bi2"
+     #random_string = "M7bYy5ghpne0Xjxr"
      #output_key_path = "batch_jobs/promptimizer/lost_and_found/2025-06-28"
      #print(random_string)
      jobArn = kick_off('s3://' + bucket + '/' + key_path + '/input/' + filename, 's3://' + bucket + '/' + key_path + '/output/', random_string)
@@ -902,12 +1000,12 @@ def use_case_selector():
                         Diagnose a patient based on text describing his or her symptoms.
                     </td>
                     <td>
-                        <a href="https://huggingface">Hugging Face</a>
+                        <a href="https://https://huggingface.co/datasets/gretelai/symptom_to_diagnosis">Hugging Face</a>
                     </td>
                 </tr>
                 <tr>
                     <td>
-                        <a href="/ai_detector?use_case=ai_detector">AI Detector</a>
+                        <a href="/prompt_preview?use_case=ai_detector">AI Detector</a>
                     </td>
                     <td>
                         Given some text, determine if the text was generated by a human or a language model.
