@@ -12,8 +12,6 @@ import string
 app = Flask(__name__)
 
 
-
-
 def call_nova(system, user, config):
     text = []
 
@@ -75,7 +73,9 @@ def call_nova(system, user, config):
 
 
 def kick_off(input_path, output_path, job_id):
-    boto3_bedrock = boto3.client(service_name="bedrock", region_name='us-east-2', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
+    boto3_bedrock = boto3.client(service_name="bedrock", region_name='us-east-2', 
+                                 aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
+                                 aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
 
     inputDataConfig=({
         "s3InputDataConfig": {
@@ -272,7 +272,8 @@ bucket = 'sagemaker-us-east-2-344400919253'
 def enumerate_prompts():
     
     try:
-        client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
+        client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
+                              aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
     except Exception as e:
         return e
     n_rows = request.args.get('rows', '')
@@ -324,7 +325,8 @@ def enumerate_prompts():
 @app.route("/check_status", methods=["POST"])
 def check_status():
 
-    boto3_bedrock = boto3.client(service_name="bedrock", aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY, region_name='us-east-2')
+    boto3_bedrock = boto3.client(service_name="bedrock", aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
+                                 aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
     jobArn = request.form['jobArn']
     next_step = request.args.get('next_action')
@@ -425,8 +427,8 @@ def optimize(ids, use_case, task_system, seperator, key_path, training_data_file
          return "Your file must contain columns with the names 'input' and 'output'."
 
 
-     s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY,
-                       aws_secret_access_key=AWS_SECRET_KEY, region_name='us-east-2')
+     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
      sub_directories = s3.list_objects_v2(Bucket = bucket, Prefix = key_path + '/output')
      jsonl = []
      #jsonl = {}
@@ -496,8 +498,8 @@ def optimize(ids, use_case, task_system, seperator, key_path, training_data_file
 def get_embeddings(input_text):
 
     client = boto3.client(service_name="bedrock-runtime", region_name='us-east-2',
-                          aws_access_key_id=AWS_ACCESS_KEY,
-                          aws_secret_access_key=AWS_SECRET_KEY)
+                          aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
 
     model_id = "amazon.titan-embed-text-v2:0"
 
@@ -522,8 +524,8 @@ def get_embeddings(input_text):
 
 def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_filename, seperator, label, task_system, filename_ids):
 
-    s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY,
-                      aws_secret_access_key=AWS_SECRET_KEY, region_name='us-east-2')
+    s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
     sub_directories = s3.list_objects_v2(Bucket = bucket, Prefix = key_path + '/output')
     jsonl = []
     print('key_path', key_path)
@@ -691,8 +693,8 @@ def random_initialize(key_path,filename_id, seperator, use_case, df):
 
 
      
-     s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY,
-                       aws_secret_access_key=AWS_SECRET_KEY, region_name='us-east-2')
+     s3 = boto3.client('s3', aws_access_key_id=os.enivorn['AWS_ACCESS_KEY'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
      sub_directories = s3.list_objects_v2(Bucket = bucket, Prefix = key_path + '/output')
      jsonl = []
      for subdir in sub_directories['Contents']:
