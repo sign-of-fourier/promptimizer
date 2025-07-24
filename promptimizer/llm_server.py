@@ -78,6 +78,7 @@ model_catalog = {'nova-micro': 'us.amazon.nova-micro-v1:0',
                  'nova-micro': 'us.amazon.nova-micro-v1:0',
                  'nova-pro': 'us.amazon.nova-micro-v1:0',
                  'claude-3.5-haiku': 'us.amazon.nova-micro-v1:0',
+                 'claude-3-haiku': 'us.amazon.nova-micro-v1:0',
                  'claude-3.5-sonnet': 'us.amazon.nova-micro-v1:0',
                  'claude-3.5-sonnet-v2': 'us.amazon.nova-micro-v1:0',
                  'claude-3-opus': 'us.amazon.nova-micro-v1:0',
@@ -230,6 +231,7 @@ optimize_form = """<html>
 
 @app.route("/prompt_preview")
 def prompt_preview():
+ 
     use_case = request.args.get('use_case')
     prompt_library = import_module('promptimizer.prompt_library.'+use_case)
     options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 25, 50, 75, 100]])
@@ -397,7 +399,9 @@ def enumerate_prompts():
         return e
     n_rows = request.args.get('rows', '')
     use_case = request.args.get('use_case', '')
-    
+    password = request.form['password']
+    if password != os.environ['APP_PASSWORD']:
+        return 'Wrong password ... wah wah'
     prompt_user = request.form['writer_user']
     prompt_system = request.form['writer_system']
     models = {}
