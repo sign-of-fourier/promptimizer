@@ -795,7 +795,7 @@ def auc(predictions_df, truth):
     for prompt_id in predictions_df['prompt_id'].unique():
         df = predictions_df[predictions_df['prompt_id'] == prompt_id]
         prompt_auc[prompt_id] = roc_auc_score([1 if truth[str(x)] == True else 0 for x in df['record_id']], 
-                                              [probability(x) for x in df['prediction']])
+                                              [probability(x.lower()) for x in df['prediction']])
 
     return prompt_auc, 'nice work'
 
