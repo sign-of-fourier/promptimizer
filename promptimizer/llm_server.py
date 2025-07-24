@@ -584,6 +584,7 @@ def optimize(prompt_ids, task_system, separator, key_path, label, evaluator, set
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
+    print('reading ', bucket, key_path, setup_id)
     df = pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id)
 
     if ('input' in df.columns) & ('output' in df.columns):
