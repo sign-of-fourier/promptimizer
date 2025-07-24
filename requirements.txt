@@ -3,6 +3,7 @@ openai
 scikit-learn
 requests
 flask
+s3fs
 fsspec
 pandas
 boto3
