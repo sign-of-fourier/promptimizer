@@ -500,7 +500,7 @@ def check_status():
     #return 'success!'
 
 
-import batch_bayesian_optimization as bbo
+import promptimizer.batch_bayesian_optimization as bbo
 import os
 #import llm_ops
 #from matplotlib import pyplot as plt
