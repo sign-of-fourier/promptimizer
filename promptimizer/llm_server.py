@@ -231,7 +231,7 @@ optimize_form = """<html>
 @app.route("/prompt_preview")
 def prompt_preview():
     use_case = request.args.get('use_case')
-    prompt_library = import_module('prompt_library.'+use_case)
+    prompt_library = import_module('promptimizer.prompt_library.'+use_case)
     options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 25, 50, 75, 100]])
     model_select = "        <td>\n                <select name=\"model-{}\">\n" + options + "\n            </select>\n        </td>\n"
     model_section = ''
