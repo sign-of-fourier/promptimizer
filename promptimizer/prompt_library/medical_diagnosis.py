@@ -19,6 +19,6 @@ Here is an example of properly formatted response:
   "confidence": "confident"
 }}
 """
-seperator = "### PATIENTS SYMPTOMS ###"
+separator = "### PATIENTS SYMPTOMS ###"
 task_system = "You are a physician's assistant. Your job is to provide assistance in medical diagnosis based on a patient's symptoms."
 label_name="disease"

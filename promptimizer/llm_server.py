@@ -8,6 +8,7 @@ import json
 import datetime
 import random
 import string
+import openai
 
 app = Flask(__name__)
 
@@ -70,16 +71,29 @@ def call_nova(system, user, config):
 
 
 
+model_catalog = {'nova-micro': 'us.amazon.nova-micro-v1:0',
+                 'nova-pro': 'us.amazon.nova-micro-v1:0',
+                 'llama-3.1': 'us.amazon.nova-micro-v1:0',
+                 'nova-lite': 'us.amazon.nova-micro-v1:0',
+                 'nova-micro': 'us.amazon.nova-micro-v1:0',
+                 'nova-pro': 'us.amazon.nova-micro-v1:0',
+                 'claude-3.5-haiku': 'us.amazon.nova-micro-v1:0',
+                 'claude-3.5-sonnet': 'us.amazon.nova-micro-v1:0',
+                 'claude-3.5-sonnet-v2': 'us.amazon.nova-micro-v1:0',
+                 'claude-3-opus': 'us.amazon.nova-micro-v1:0',
+                 'claude-3-sonnet': 'us.amazon.nova-micro-v1:0',
+                 'llama-3.1-405b-instruct': 'us.amazon.nova-micro-v1:0',
+                 'llama-3.1-70b-instruct': 'us.amazon.nova-micro-v1:0',
+                 'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0'
+}
 
-
-def kick_off(input_path, output_path, job_id):
+def kick_off(input_path, output_path, job_id, model):
     boto3_bedrock = boto3.client(service_name="bedrock", region_name='us-east-2', 
                                  aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
                                  aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
 
     inputDataConfig=({
         "s3InputDataConfig": {
-#            "s3Uri": 's3://' + bucket + '/' + key_path + "input/" + filename,
             "s3Uri": input_path,
             "s3BucketOwner": "344400919253"
         }
@@ -91,23 +105,29 @@ def kick_off(input_path, output_path, job_id):
             "s3BucketOwner": "344400919253"
         }
     })
-
-    response=boto3_bedrock.create_model_invocation_job(
-        roleArn = 'arn:aws:iam::344400919253:role/bedrock_batch',
-        modelId = 'us.amazon.nova-micro-v1:0',
+    try:
+        response=boto3_bedrock.create_model_invocation_job(
+            roleArn = 'arn:aws:iam::344400919253:role/bedrock_batch',
+            modelId = model_catalog[model],
         
-        jobName=job_id,
-        inputDataConfig=inputDataConfig,
-        outputDataConfig=outputDataConfig
-    )
-    jobArn = response.get('jobArn')
-    boto3_bedrock.close()
-    return jobArn
+            jobName=job_id + '-' + model,
+            inputDataConfig=inputDataConfig,
+            outputDataConfig=outputDataConfig
+        )
+        jobArn = response.get('jobArn')
+        boto3_bedrock.close()
+        return jobArn
+    except Exception as e:
+        print(e)
+        return -1
+
+
+
 
 
 
 check_status_form = """<html><title>Quante Carlo</title><br><body><p>
-<form action="/check_status?use_case={}&next_action={}" method="POST" enctype="multipart/form-data">
+<form action="/check_status?next_action={}" method="POST" enctype="multipart/form-data">
 <br>
 <table border=1>
     <tr>
@@ -166,7 +186,7 @@ optimize_form = """<html>
         <td>  &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td></tr>
     <tr>
         <td></td>
-        <form action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
+        <form action="/optimize" method="POST" enctype="multipart/form-data">
               <td>
                   Training Data File
               </td>
@@ -212,6 +232,21 @@ optimize_form = """<html>
 def prompt_preview():
     use_case = request.args.get('use_case')
     prompt_library = import_module('prompt_library.'+use_case)
+    options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 25, 50, 75, 100]])
+    model_select = "        <td>\n                <select name=\"model-{}\">\n" + options + "\n            </select>\n        </td>\n"
+    model_section = ''
+    for i, model_name in enumerate(['Nova Lite', 'Nova Micro', 'Nova Pro', 'claude 3.5 Haiku', 'claude-3.5-Sonnet', 'Claude 3.5 Sonnet V2',
+                                    'Claude 3 Haiku', 'Claude 3 Opus', 'Claude 3 Sonnet', 'Llama 3.1 405B Instruct', 'Llama 3.1 70B Instruct',
+                                    'Llama 3.1 8B Instruct']):
+        if i % 2:
+            row_start = "            </td>\n"
+            row_end = "        </tr>\n"
+        else:
+            row_start = "        <tr>\n"
+            row_end = "            <td>\n"
+        model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(re.sub(' ', '-', model_name.lower())) + row_end + "\n"
+
+
 
     return """
 <br>
@@ -219,7 +254,7 @@ def prompt_preview():
 <table border=0>
     <tr>
         <td></td>
-        <td colspan=2>Herer you design your Meta Prompts, the prompts will write your ideal prompt.</td>
+        <td colspan=2>Here you design your Meta Prompt, the prompts that will write candidates for your ideal prompt.</td>
         <td></td>
     </tr>
     <tr>
@@ -237,7 +272,7 @@ def prompt_preview():
     <tr>
         <td></td>
         <td><b>Seperator</b><br> This will be used when adding your data to the prompt.</td>
-        <td><input type="text" name="seperator" rows=3 value="{}"></input></td>
+        <td><input type="text" name="separator" rows=3 value="{}"></input></td>
         <td></td>
     </tr>
     <tr>
@@ -252,24 +287,41 @@ def prompt_preview():
         <td><input width=70 type="text" name="label" value="{}"></input</td>
         <td></td>
     </tr>
+
     <tr>
         <td></td>
-        <td><b>Model</b></td>
-        <td>
-            <select name="model">
-                <option value="aws_nova_micro">AWS Nova Micro</option>
-                <option value="llama_31">Llama 3.1</option>
+        <td><b>Evaluation method</b> for label. Should match the prompt.</td>
+        <td><select name="evaluator">
+            <option value="accuracy">Accuracy</option>
+            <option valuie="AUC">AUC</option>
             </select>
         </td>
         <td></td>
     </tr>
+
     <tr>
         <td></td>
-        <td><b>Evaluator</b></td>
-        <td><select name="evaluator">
-            <option value="accuracy">accuracy</otioin>
-            <option value="auc">AUC</option>
-            </select></td>
+        <td><b>Model</b></td>
+        <td>
+            <table border=1>
+                <tr>
+                    <td>
+                        <u>Model Name</u>
+                    </td>
+                    <td>
+                        <u>N Prompts</u>
+                    </td>
+                    <td> &nbsp; &nbsp; </td>
+                    <td> <u> Model Name </u>
+                    </td>
+                    <td>
+                       <u> N Prompts </u>
+                    </td>
+                </tr>
+                {}
+
+            </table>
+        </td>
         <td></td>
     </tr>
     <tr>
@@ -280,19 +332,57 @@ def prompt_preview():
     </tr>
 </table>
 </form>
-""".format(use_case, prompt_library.writer_system, prompt_library.writer_user, prompt_library.seperator, 
-           prompt_library.task_system, prompt_library.label_name)
+""".format(use_case, prompt_library.writer_system, prompt_library.writer_user, 
+           prompt_library.separator, prompt_library.task_system, prompt_library.label_name,
+            model_section)
 
 
 hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
 
 bucket = 'sagemaker-us-east-2-344400919253'
 
+max_records = 1000
+
+def batchrock(client,prompt_system, prompt_user, use_case, models):
+
+    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+
+    timestamp = datetime.datetime.today()
+    key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
+    filenames = []
+
+    jobArns = []
+    jsonl = []
+    for i in range(max_records):
+        query = {"recordId":  "JOB_1_RECORD_{}".format(i),
+                 "modelInput": {"schemaVersion": "messages-v1",
+                                "system": [{"text": prompt_system}],
+                                "messages": [{"role": "user",
+                                              "content": [{"text": "{}".format(prompt_user)} ] }],"inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .9 }
+                                }
+                }
+        jsonl.append(json.dumps(query))
+
+    
+
+    for model_name in models.keys():
+        if models[model_name] >=100:
+            filename = f'{random_string}/{model_name}.jsonl'
+            filenames.append(filename)
+            client.put_object(Body="\n".join(jsonl[:models[model_name]]),
+                              Bucket=bucket, Key=key_path + '/input/' + filename)
+
+            jobArns.append(kick_off('s3://' + bucket + '/' + key_path + '/input/' + filename, 
+                                    's3://' + bucket + '/' + key_path + '/output/' + random_string + '/', random_string, model_name))
+
+            with open('/tmp/' + random_string + '-' + model_name + '.jsonl', 'w') as f:
+                f.write("\n".join(jsonl))
+
+    return jobArns, key_path, random_string
+
 @app.route("/enumerate_prompts", methods=['POST'])
 def enumerate_prompts():
     
-
-
     try:
         client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
@@ -301,88 +391,107 @@ def enumerate_prompts():
         return e
     n_rows = request.args.get('rows', '')
     use_case = request.args.get('use_case', '')
-    if ('seperator' in request.form.keys()) & ('writer_user' in request.form.keys()) & ('writer_system' in request.form.keys()):
-        seperator = request.form['seperator']
-        prompt_user = request.form['writer_user']
-        prompt_system = request.form['writer_system']
-        label = request.form['label']
-        task_system = request.form['task_system']
-        random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-
-        timestamp = datetime.datetime.today()
-        key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
-        filename = f'{random_string}.jsonl'
     
-        jsonl = []
-        for i in range(105):
-            query = {"recordId":  "JOB_1_RECORD_{}".format(i), 
-                     "modelInput": {"schemaVersion": "messages-v1", 
-                                    "system": [{"text": prompt_system}],
-                                    "messages": [{"role": "user", 
-                                                  "content": [{"text": "{}".format(prompt_user)} ] }],"inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .6 }
-                                } 
-                    }
-            jsonl.append(json.dumps(query))
-        client.put_object(Body="\n".join(jsonl),
-                          Bucket=bucket, Key=key_path + '/input/' + filename
-                         )
+    prompt_user = request.form['writer_user']
+    prompt_system = request.form['writer_system']
+    models = {}
+    total_calls = 0
+    for k in request.form.keys():
+        if 'model' == k[:5]:
+            models[k[6:]] = int(request.form[k])
+            total_calls += int(request.form[k])
+    
+    jobArns, key_path, random_string = batchrock(client, prompt_system, prompt_user, use_case, models)
+    
+    hidden_variables = hidden.format('deployment', 'bedrock')
+    for h in ['separator', 'label', 'task_system', 'evaluator']:
+        hidden_variables += hidden.format(h, request.form[h])
 
-        jobArn = kick_off('s3://' + bucket + '/' + key_path + '/input/' + filename, 's3://' + bucket + '/' + key_path + '/output/', random_string)
-
-        #jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/4rsf57id8tvu"
-        #random_string = "g9FhH5JGLjcrOjVG"
-        #key_path = "batch_jobs/promptimizer/ai_detector/2025-07-06"
-        with open('/tmp/' + random_string + '.jsonl', 'w') as f:
-             f.write("\n".join(jsonl))
-
-
-        hidden_variables = ''
-        for h in ['seperator', 'label', 'task_system', 'model', 'evaluator']:
-            hidden_variables += hidden.format(h, request.form[h]) 
-
-        message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes and use the job_ids and key_paths below."
-        return check_status_form.format(use_case, 'optimize', message, hidden_variables, jobArn, key_path, random_string)        
-    else:
-        return 'The form is wrong'
+    message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes and use the job_ids and key_paths below."
+    return check_status_form.format('optimize', message, hidden_variables, ";".join(jobArns), key_path, random_string)        
 
 
 @app.route("/check_status", methods=["POST"])
 def check_status():
+    #if request.form['deployment'] == 'bedrock': # same as next_step=='optimize'
+    if request.args.get('next_action') == 'optimize':
+        jobArns = request.form['jobArn'].split(';')
+        boto3_bedrock = boto3.client(service_name="bedrock", aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
+                                     aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-    boto3_bedrock = boto3.client(service_name="bedrock", aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
-                                 aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-
-    jobArn = request.form['jobArn']
-    next_step = request.args.get('next_action')
+        key_path = request.form['key_path']
+        filename_id = request.form['filename_id']
     
-    key_path = request.form['key_path']
-    filename_id = request.form['filename_id']
-    
-    use_case = request.args.get('use_case')
+        #use_case = request.args.get('use_case')
     #hidden_variables = request.form['hidden_variables']
-    hidden_variables = ''
-    for v in ['seperator', 'label', 'task_system', 'evaluator', 'model']:
-        hidden_variables += hidden.format(v, request.form[v])
-    status = boto3_bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
-    if status == 'Completed':
-        if next_step == 'optimize':
+        hidden_variables = ''
+        for v in ['separator', 'label', 'task_system', 'evaluator']:
+            hidden_variables += hidden.format(v, request.form[v])
+
+        status = [boto3_bedrock.get_model_invocation_job(jobIdentifier=j)['status'] for j in jobArns]
+        
+        finished = sum([1 if x == 'Completed' else 0 for x in status]) == len(status) 
+    #status = boto3_bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
+        if finished:
+            hidden_variables += "\n".join([hidden.format('job_id-{}'.format(i), j.split('/')[-1]) for i, j in enumerate(jobArns)])
             message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
-            return optimize_form.format(message, use_case, hidden_variables, filename_id, key_path)
-        elif next_step == 'iterate':
-            prompt_filename_id = request.form['prompt_filename_id']
-            training_data_filename = request.form['training_data_filename']
-            return bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_filename, 
-                         request.form['seperator'],  request.form['label'], request.form['task_system'], 
-                         request.form['filename_ids'], request.form['evaluator'], request.form['model'])
+            return optimize_form.format(message, hidden_variables, filename_id, key_path)
+        else:
+            return "<br>\n".join(status) + "\n<br>" + "Use your back button to check again in a little while."
+    elif request.args.get('next_action') == 'iterate':
+        azure_client = openai.AzureOpenAI(
+                api_key=os.environ['AZURE_OPENAI_KEY'],
+                api_version="2024-10-21",
+                azure_endpoint = os.environ["AZURE_ENDPOINT"]
+                )
+
+        batch_id = request.form['jobArn']
+        batch_response = azure_client.batches.retrieve(batch_id)
+        azure_client.close()
+        if batch_response.status == 'failed':
+            return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
+        elif batch_response.status == 'completed':
+            #azure_client.files.delete(request.form['filename_id'])
+            #truth = []
+            #prompt_ids = []
+            #for raw in azure_client.files.content(batch_response.output_file_id).text.strip().split("\n"):
+            #    try:
+
+            #        jsponse = json.loads(raw)
+            #        prompt_ids.append(jsponse['custom_id'])
+            #        content = json.loads(jsponse['response']['body']['choices'][0]['message']['content'])
+            #        match = json.loads(re.search(r'(\{.*\})', content, re.DOTALL).group(0))
+            #        if request.form['label'] in match.keys():
+            #            truth.append(match[request.form['label']])
+            #    except Exception as e:
+            #        print(e)
+            #        print(raw)
+
+            return bayes(batch_response.output_file_id, request.form['key_path'], request.form['setup_id'], 
+                         request.form['separator'], request.form['label'], request.form['task_system'], request.form['filename_ids'], request.form['evaluator'])
+        else:
+            return "<br>\n" + batch_response.status + "\n<br>" + "Use your back button to check again in a little while."
+
+    else:
+        return 'no next_action'
+
+
+        #print('next_step', request.form['next_action'])
+        
+        #setup_id = request.form['setup_id']
+        #training_data_filename = request.form['training_data_filename']
+        #return bayes(filename_id, use_case, key_path, setup_id, training_data_filename, 
+        #             request.form['separator'],  request.form['label'], request.form['task_system'], 
+        #             request.form['filename_ids'], request.form['evaluator'], request.form['model'])
 
 
         #    return optimize_form.format(message, hidden_variables, filename + '.jsonl', key_path)
 
-    else:
-        return f"<html><br><br>&nbsp; &nbsp; &nbsp; Status {status}\n<br>&nbsp; &nbsp; &nbsp; Use your back button to check again in a little while. &nbsp;"
+    #else:
+    #    return f"<html><br><br>&nbsp; &nbsp; &nbsp; Status {status}\n<br>&nbsp; &nbsp; &nbsp; Use your back button to check again in a little while. &nbsp;"
 
 
-    return 'success!'
+    #return 'success!'
 
 
 import batch_bayesian_optimization as bbo
@@ -396,124 +505,140 @@ from scipy.stats import ecdf, lognorm
 #from multiprocessing import Pool
 from scipy.stats import norm
 
+
+
+def get_prompts(prompt_key):
+
+     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+
+     jsonl = []
+     #s3_path = key_path + '/output/{}'
+
+     models = []
+     #for subdir in subdirectories:
+     #    print(subdir)
+     files = s3.list_objects_v2(Bucket = bucket, Prefix = prompt_key)
+     for file in files['Contents']:
+         components = file['Key'].split('/')
+         if components[-1] != 'manifest.json.out':
+             m = re.sub('.jsonl.out', '', components[-1])
+             models.append(m)
+             obj = s3.get_object(Bucket=bucket, Key=file['Key'])
+             jsonl += obj['Body'].read().decode('utf-8').split("\n")
+
+     s3.close()
+
+     return [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
+
+
 @app.route("/optimize", methods=['POST'])
 def pre_optimize():
     
-     if ('filename_id' not in request.form.keys()) | ('key_path' not in request.form.keys()):
-         return "fill out the form"
      filename_id = request.form['filename_id']
      key_path = request.form['key_path']
-     use_case = request.args.get('use_case', 'lost_and_found') 
-     seperator = request.form['seperator']
+     #use_case = request.args.get('use_case', 'lost_and_found') 
+     separator = request.form['separator']
      label = request.form['label']
      task_system = request.form['task_system']
      evaluator = request.form['evaluator']
-     model = request.form['model']
+     
+     subdirectories = [filename_id + '/' + request.form[k] for k in request.form.keys() if k[:6] == 'job_id']
+
+
+
+     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+
 
      if not request.files['data'].filename:
 
          return "No training File"
      else:
-         with open('/tmp/' + request.files['data'].filename, 'wb') as f:
-              f.write(request.files['data'].stream.read())
 
-     training_data_filename = request.files['data'].filename
+         s3.put_object(Body=request.files['data'].stream.read(),
+                       Bucket=bucket, Key=key_path + '/training_data/' + filename_id)
 
+     prompts = get_prompts(key_path + '/output/' + filename_id)
+     if len(prompts) < 1:
+         return "Sub directory problem"
 
-     return optimize(range(4), use_case, task_system, seperator, key_path, training_data_filename, 
-                     filename_id, label, evaluator, model)
-
-def optimize(ids, use_case, task_system, seperator, key_path, training_data_filename, 
-             prompt_filename_id, label, evaluator, model, filename_ids = '', performance_report = ''):
-
-     try:
-         df = pd.read_csv('/tmp/' + training_data_filename)
-     except TypeError:
-         print('failed to read. Trying windows.')
-         df = pd.read_csv('/tmp/' + training_data_filename, encoding='unicode_escape')
-
-
-     if ('input' in df.columns) & ('output' in df.columns):
-         preview_text = []
-         preview_target = []
-         preview_data = '<table border=1><tr><td></td><td>Data Preivew</td><td></td></tr>'
-         for x in range(min(3, df.shape[0])):
-             preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
-             preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
-         preview_data += "</table>"
-         #print(preview_data)
-
-
-     else:
-         return "Your file must contain columns with the names 'input' and 'output'."
-
-
-     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-     sub_directories = s3.list_objects_v2(Bucket = bucket, Prefix = key_path + '/output')
-     jsonl = []
-     #jsonl = {}
-     for subdir in sub_directories['Contents']:
-         components = subdir['Key'].split('/')
-         if components[-1] == prompt_filename_id+'.jsonl'+ '.out':
-             obj = s3.get_object(Bucket=bucket, Key=subdir['Key'])
-             jsonl = obj['Body'].read().decode('utf-8').split("\n")
-
-     if len(jsonl) < 1:
-         return "Sub directory problem " + prompt_filename_id
-
-
-     prompts = [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
      E = get_embeddings(prompts)
-     s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + prompt_filename_id)
-
-     print('writing new file {}'.format(len(ids)))
-     evaluation_jsonl = []
-     for job_id in ids:
-         model = json.loads(jsonl[job_id])
-         #print( model['modelOutput']['output']['message']['content'][0]['text'] )
-         for i, text in enumerate(df['input']):
-             query = {"recordId":  "PROMPT_{}_RECORD_{}".format(job_id, i),
-                       "modelInput": {"schemaVersion": "messages-v1",
-                                      "system": [{"text": task_system}],
-                                      "messages": [{"role": "user",
-                                                    "content": [{"text": model['modelOutput']['output']['message']['content'][0]['text'] +"\n"+seperator+"\n" + text} ]}],
-                                                    "inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .6 }
-                                      }
-                      }
-             evaluation_jsonl.append(json.dumps(query))
-
-     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-
-     timestamp = datetime.datetime.today()
-     #output_key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
-     output_filename = f'{random_string}.jsonl'
+     s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + filename_id + '.mbd')
+     s3.close()
+     return optimize(range(4), task_system, separator, key_path, label, evaluator, filename_id)
 
 
-     s3.put_object(Body="\n".join(evaluation_jsonl),
-                   Bucket=bucket, Key=key_path + '/input/' + output_filename
-                   )
+def optimize(prompt_ids, task_system, separator, key_path, label, evaluator, setup_id, filename_ids = '', performance_report = ''):
 
+    s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-     #jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/b2zk81jz42d1"
-     #random_string = "x5psWuARccJ6Jg6S"
-     #output_key_path = "batch_jobs/promptimizer/ai_detector/2025-07-06"
+    df = pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id)
 
-     hidden_variables = hidden.format('training_data_filename', training_data_filename)+\
-             hidden.format('seperator', seperator) + hidden.format('prompt_filename_id', prompt_filename_id)+\
-             hidden.format('label', label) + hidden.format('task_system', task_system) + hidden.format('filename_ids', filename_ids)+\
-             hidden.format('evaluator', evaluator) + hidden.format('model', model)
-     print('kicking off new job')
-     jobArn = kick_off('s3://' + bucket + '/' + key_path + '/input/' + output_filename, 's3://' + bucket + '/' + key_path + '/output/', random_string)
-     if len(performance_report) > 0:
-         performance_report = f"<hr>Log<br><textarea name=\"log\" rows=5 cols= 80 >{performance_report}</textarea>"
-     return check_status_form.format(use_case, 'iterate', preview_data, hidden_variables, jobArn, key_path, random_string)+\
-             performance_report
+    if ('input' in df.columns) & ('output' in df.columns):
+        preview_text = []
+        preview_target = []
+        preview_data = '<table border=1><tr><td></td><td>Data Preivew</td><td></td></tr>'
+        for x in range(min(3, df.shape[0])):
+            preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
+            preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
+        preview_data += "</table>"
 
+    else:
+        return "Your file must contain columns with the names 'input' and 'output'."
 
+    print('writing {} new files.'.format(len(prompt_ids)))
+    prompts = get_prompts(key_path + '/output/' + setup_id)
+    evaluation_jsonl = []
+    for prompt_id in prompt_ids:
+        prompt = prompts[prompt_id]
+        for i, text in enumerate(df['input']):
+            query = {'custom_id': 'PROMPT_{}_{}'.format(prompt_id, i),
+                     'method': 'POST',
+                     'url': '/chat/completions',
+                     'body': {
+                         'model': 'gpt-4o-mini-batch',
+                        'temperature': .03,
+                         'messages': [
+                             {'role': 'system', 'content': task_system},
+                             {'role': 'user', 'content': prompt + "\n" + separator+"\n" + text}
+                            ]
+                         }
+                     }
+            evaluation_jsonl.append(json.dumps(query))
+    
+    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
 
+    timestamp = datetime.datetime.today()
+    output_filename = f'/tmp/{random_string}.jsonl'
+    with open(output_filename, 'w') as f:
+        f.write("\n".join(evaluation_jsonl))
 
+    azure_client = openai.AzureOpenAI(
+            api_key=os.environ['AZURE_OPENAI_KEY'],
+            api_version="2024-10-21",
+            azure_endpoint = os.environ["AZURE_ENDPOINT"]
+            )
 
+    file = azure_client.files.create(
+            file=open(output_filename, "rb"),
+            purpose="batch"
+            )
+
+    batch_response = azure_client.batches.create(
+        input_file_id=file.id,
+        endpoint="/chat/completions",
+        completion_window="24h",
+    )
+    azure_client.close()
+
+    hidden_variables = hidden.format('separator', separator) + hidden.format('setup_id', setup_id)+\
+            hidden.format('label', label) + hidden.format('task_system', task_system) + hidden.format('filename_ids', filename_ids)+\
+            hidden.format('evaluator', evaluator)
+
+    return check_status_form.format('iterate', preview_data, hidden_variables, batch_response.id, key_path, random_string)
+    
 
 
 
@@ -544,51 +669,65 @@ def get_embeddings(input_text):
 
 
 
-def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_filename, seperator, 
-          label, task_system, filename_ids, evaluator, model):
+def bayes(filename_id, key_path, setup_id, separator, 
+          label, task_system, filename_ids, evaluator):
 
-    s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-    sub_directories = s3.list_objects_v2(Bucket = bucket, Prefix = key_path + '/output')
-    jsonl = []
-
+    azure_client = openai.AzureOpenAI(
+            api_key=os.environ['AZURE_OPENAI_KEY'],
+            api_version="2024-10-21",
+            azure_endpoint = os.environ["AZURE_ENDPOINT"]
+            )
 
     if len(filename_ids) < 1:
         filename_ids = filename_id
     else:
-        filename_ids = filename_ids + '|' + filename_id
+        filename_ids = filename_ids + ';' + filename_id
+
+               #azure_client.files.delete(request.form['filename_id'])
+    predictions = []
+    prompt_ids = []
+    record_ids = []
 
 
-    jsonl = {}
-    for i, filename_id in enumerate(filename_ids.split('|')):
-        for subdir in sub_directories['Contents']:
-            components = subdir['Key'].split('/')
-        #print(components[-1], filename)
-            if components[-1] == filename_id + '.jsonl.out':
-                obj = s3.get_object(Bucket=bucket, Key=subdir['Key'])
-                jsonl[i] = obj['Body'].read().decode('utf-8').split("\n")
+    for i, filename in enumerate(filename_ids.split(';')):
+        for raw in azure_client.files.content(filename).text.strip().split("\n"):
+            if True:
+                jsponse = json.loads(raw)
+                custom_ids_components = jsponse['custom_id'].split('_')
+                match = re.search(r'(\{.*\})', jsponse['response']['body']['choices'][0]['message']['content'], re.DOTALL)
+                if match:
+                    content = json.loads(match.group(0))
+                    if request.form['label'] in content.keys():
+                        prediction = content[request.form['label']]
+                        prompt_ids.append(custom_ids_components[1])
+                        record_ids.append(custom_ids_components[2])
+                        predictions.append(prediction)
+
+            #except Exception as e:
+            #    print(e)
+            #    print(custom_ids_components)
 
 
-    try:
-        df = pd.read_csv('/tmp/' + training_data_filename)
-    except TypeError:
-        print('failed to read. Trying windows.')
-        df = pd.read_csv(training_data_filename, encoding='unicode_escape')
+    predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
+                                   'record_id': record_ids,
+                                   'prediction': predictions})
 
-    #input_prompts = []
-    #scores = []
-    #record_ids = []
-
+    training_df = json.loads(pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id).to_json())
+    truth = training_df['output']
 
     if evaluator == 'accuracy':
-        scores_by_prompt, performance_report = accuracy(jsonl, df, filename_id, label)
+        scores_by_prompt, performance_report = accuracy(predictions_df, truth)
     elif evaluator == 'auc':
-        scores_by_prompt, performance_report = auc(jsonl, df, filename_id, label)
+        scores_by_prompt, performance_report = auc(predictions_df, truth)
     else:
         print("ERROR NO Evaluator")
 
 
-    obj = s3.get_object(Bucket=bucket, Key=key_path + '/embeddings/' + prompt_filename_id)
+    s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+
+
+    obj = s3.get_object(Bucket=bucket, Key=key_path + '/embeddings/' + setup_id + '.mbd')
     embeddings_raw = obj['Body'].read().decode('utf-8').split("\n")
     embeddings_raw = [[float(x) for x in e.split(',')] for e in embeddings_raw]
     scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
@@ -613,148 +752,73 @@ def bayes(filename_id, use_case, key_path, prompt_filename_id, training_data_fil
 
 
     batch_size = 3
-    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, 24, batch_size)
+    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, 48, batch_size)
     best_idx = bbo.get_best_batch(batch_mu, batch_sigma, batch_size)
     performance_report += "Best: {}\n".format(max(Q))
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
+    
 
-    return optimize([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], use_case, task_system,
-                    seperator, key_path, training_data_filename, prompt_filename_id, label, evaluator, model,
+
+    #return optimize(range(4), task_system, separator, key_path, label, evaluator, filename_id)
+
+
+
+    return optimize([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], task_system,
+                    separator, key_path, label, evaluator, setup_id,
                     filename_ids, performance_report)
 
 
 from sklearn.metrics import roc_auc_score
 
-def auc(jsonl, df, filename_id, label):
+def probability(word):
+    if word == 'very likely':
+        return .9
+    elif word == 'likely':
+        return .7
+    elif word == 'unlikely':
+        return .3
+    elif word == 'very unlikely':
+        return .1
+    else:
+        return .5
 
 
-    report = ""
-    total_collect_scores = {}
-    for iteration in jsonl.keys():
-        scores = {}
-        truth = {}
-        for answer in jsonl[iteration]:
-            try:
-                j = json.loads(answer)
-                output = j['modelOutput']['output']['message']['content'][0]['text']
-                r = j['recordId'].split('_')
-                m = re.findall(r'(\{.*?\})', output, re.DOTALL)
-                if len(m) > 0:
-                    try:
-                        s = json.loads(re.sub('{{', '{', m[0]))[label]
-                        if r[1] not in scores.keys():
-                            scores[r[1]] = []
-                            truth[r[1]] = []
-                        if s == 'very likely':
-                            scores[r[1]].append(.9)
-                        elif s == 'likely':
-                            scores[r[1]].append(.7)
-                        elif s == 'unlikely':
-                            scores[r[1]].append(.3)
-                        elif s == 'very unlikely':
-                            scores[r[1]].append(.1)
-                        else:
-                            scores[r[1]].append(.5)
 
-                        truth[r[1]].append(df['output'].iloc[int(r[3])])
-              #          if o:
-              #              truth[r[1]].append(1)
-              #          else:
-              #              truth[r[1]].append(0)
-                    except Exception as e:
-                        print(e)
-                        print('JSON issue', m[0], r, iteration)
-                
-                else:
-                    print("NO matching json {}".format(r[1]))
-                    with open('/tmp/' + filename_id + '.log', 'a') as f:
-                        f.write(output)
-            except Exception as e:
-                print(e)
-                with open('/tmp/' + filename_id + '.' + str(iteration) + '.log', 'a') as f:
-                    f.write(answer)
+def auc(predictions_df, truth):
 
-                print("bad json {} {} {}".format(filename_id, r[1], [3]))
+    performance_report = ""
+    prompt_auc = {}
+    predict_proba = []
+    target =[]
 
-        collect_scores = {}
-        report += f"Iteration {iteration}\n"
-        print(iteration, 'scores', scores.keys())
-        for k in scores.keys():
-            if (sum([1 for x in truth[k] if x == 0]) == 0) | (sum([1 for x in truth[k] if x == 1]) == 0):
-                print('Single Class: AUC undefined {}'.format(k))
-                collect_scores[k] = 0
-                total_collect_scores[k] = 0
-            else:
-                auc_score = roc_auc_score(truth[k], scores[k])
-                print("collectiong", k)
-                collect_scores[k] = auc_score
-                total_collect_scores[k] = auc_score
+    for prompt_id in predictions_df['prompt_id'].unique():
+        df = predictions_df[predictions_df['prompt_id'] == prompt_id]
+        prompt_auc[prompt_id] = roc_auc_score([1 if truth[str(x)] == True else 0 for x in df['record_id']], 
+                                              [probability(x) for x in df['prediction']])
 
-                report += f"- {k} {auc_score}\n"
-    
-    return total_collect_scores, report
+    return prompt_auc, 'nice work'
 
 
 
 
-def accuracy(jsonl, df, filename_id, label):
+def accuracy(predictions_df, truth):
     performance_report = ""
     total_collect_scores = {}
-    #results = [json.loads(model)['modelOutput']['output']['message']['content'][0]['text'] 
-    for iteration in jsonl.keys():
-        scores = []
-        record_ids = []
+    #results = [json.loads(model)['modelOutput']['output']['message']['content'][0]['text']
+    prompt_accuracy = {}
+    for p in predictions_df['prompt_id'].unique():
+        prompt_accuracy[p] = 0
 
-        for answer in jsonl[iteration]:
-            try:
-                j = json.loads(answer)
-                output = j['modelOutput']['output']['message']['content'][0]['text']
-                m = re.findall(r'(\{.*?\})', output, re.DOTALL)
-                if len(m) > 0:
-     #               input_prompts.append(j['modelInput']['messages'][0]['content'][0]['text'])
-                    scores.append(json.loads(m[0])[label])
-                    record_ids.append(j['recordId'].split('_'))
-                else:
-                    print("NO matching json")
-                    with open('/tmp/' + filename_id + '.log', 'a') as f:
-                        f.write(output)
-            except Exception as e:
-                print(e)
-                with open('/tmp/' + filename_id + '.log', 'a') as f:
-                    f.write(answer)
+    for prompt_id, record_id, prediction in zip(predictions_df['prompt_id'], predictions_df['record_id'], predictions_df['prediction']):
+        if prediction.lower() == truth[str(record_id)]:
+            prompt_accuracy[prompt_id] += 1
+        else:
+            print(prediction.lower(), ' : ', record_id, ' : ', truth[str(record_id)])
 
-                print("bad json")
+    return prompt_accuracy, 'your doing great'
 
-        collect_scores = {}
-
-        for score, rid in zip(scores, record_ids):
-            if rid[1] in collect_scores.keys():
-                collect_scores[rid[1]].append(score ==  df['output'].iloc[int(rid[3])])
-            else:
-                collect_scores[rid[1]] = [score ==  df['output'].iloc[int(rid[3])]]
-
-            if rid[1] in total_collect_scores.keys():
-                total_collect_scores[rid[1]].append(score ==  df['output'].iloc[int(rid[3])])
-            else:
-                total_collect_scores[rid[1]] = [score ==  df['output'].iloc[int(rid[3])]]
-
-
-        best = 0
-        best_prompt = -1
-        performance_report += f"iteration: {iteration}\n"
-        for k in collect_scores.keys():
-            if  sum(collect_scores[k]) > best:
-                best =  sum(collect_scores[k])
-                best_prompt = k
-            performance_report += "- prompt {} {}\n".format(k, sum(collect_scores[k]))
-        performance_report += "Best: {}, ID of Best Prompt {}\n".format(best, best_prompt)
-
-    if (len(total_collect_scores.keys()) < 2) | (total_collect_scores == {}):
-        return "No useful scores; The prompts failed"
-
-
-
+#5187555177
     performance_report += "\nTotal\n"
     best = 0
     best_prompt = -1
@@ -771,97 +835,6 @@ def accuracy(jsonl, df, filename_id, label):
     return total_collect_scores, performance_report
 
 
-
-
-def random_initialize(key_path,filename_id, seperator, use_case, df):
-
-
-     if ('input' in df.columns) & ('output' in df.columns):
-         preview_text = []
-         preview_target = []
-         preview_data = '<table border=0><tr><td></td><td>Data Preivew</td><td></td></tr>'
-         for x in range(min(3, df.shape[0])):
-             preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
-             preview_data += "    <td>" + df['output'].iloc[x] + "</td>\n</tr>\n"
-         preview_data += "</table>"
-         #print(preview_data)
-
-
-     else:
-         return "Your file must contain columns with the names 'input' and 'output'."
-
-
-     
-     s3 = boto3.client('s3', aws_access_key_id=os.enivorn['AWS_ACCESS_KEY'],
-                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-     sub_directories = s3.list_objects_v2(Bucket = bucket, Prefix = key_path + '/output')
-     jsonl = []
-     for subdir in sub_directories['Contents']:
-         components = subdir['Key'].split('/')
-         if components[-1] == filename_id + '.out':
-             obj = s3.get_object(Bucket=bucket, Key=subdir['Key'])
-             jsonl = obj['Body'].read().decode('utf-8').split("\n")
-
-     if len(jsonl) < 1:
-         return sub_directories
-
-
-
-
-     evaluation_jsonl = []
-     for job_id in range(4):
-         model = json.loads(jsonl[job_id])
-         for i, text in enumerate(df['input']):
-             query = {"recordId":  "QUERY_{}_RECORD_{}".format(job_id, i), 
-                       "modelInput": {"schemaVersion": "messages-v1", 
-                                      "system": [{"text": "You are a physicians assistant."}],
-                                      "messages": [{"role": "user",
-                                                    "content": [{"text": model['modelOutput']['output']['message']['content'][0]['text'] +"\n"+seperator+"\n" + text} ]}],
-                                                    "inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .6 }
-                                      }
-                      }
-             evaluation_jsonl.append(json.dumps(query))
-
-     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-
-     timestamp = datetime.datetime.today()
-     key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
-     filename = f'{random_string}.jsonl'
-
-
-     s3.put_object(Body="\n".join(evaluation_jsonl),
-                   Bucket=bucket, Key=output_key_path + '/input/' + output_filename
-                   )
-
-     
-     #jobArn = "arn:aws:bedrock:us-east-2:344400919253:model-invocation-job/0ck0yaak1bi2"
-     #random_string = "M7bYy5ghpne0Xjxr"
-     #output_key_path = "batch_jobs/promptimizer/lost_and_found/2025-06-28"
-     #print(random_string)
-     jobArn = kick_off('s3://' + bucket + '/' + key_path + '/input/' + filename, 's3://' + bucket + '/' + key_path + '/output/', random_string)
-     return check_status_form.format(use_case, 'iterate', preview_data, '', jobArn, key_path, random_string) 
-
-
-
-
-
-#     return str(df.shape[0]) + f"""<br><table border=1>
-# <tr>
-#     <td>row #</td><td>input_text</td><td>target</td></tr>
-# {preview_data}
-# </table>
-# <br>
-# {key_path}<br>
-# {filename_id}
-# """
-
-
-
-
-#@app.route("/qc_logo", methods=['GET'])
-#def logo():
-#    file = send_file('website/qc_logo.jpg', mimetype='image/jpg')
-#    return file
 
 
 
@@ -887,7 +860,7 @@ def rage():
     <tr><td>
      &nbsp;&nbsp;
     </td>
-    <td colspan=2><br><font size="+1">&bull; For example, in <a href="https://kaggle.com">this dataset</a>, there is a training set and a test set and each contains text and a sentiment label.
+    <td colspan=2><br><font size="+1">&bull; For example, in <a href="https://www.kaggle.com/competitions/llm-detect-ai-generated-text/data?select=train_essays.csv">this dataset</a>, there is a training set and a test set and each contains text and a sentiment label.
         The task is to use the data in the training set to attempt to label the data in the test set with the correct sentiment.
         </font<
     </td><td>
@@ -950,7 +923,7 @@ def rage():
     </td></tr>
     <tr><td></td>
     <td colspan=2><font size="+1"><br>Notes<ol><li>The text from the original <i>to-be-augmented training set </i> is first and in black.</li>
-    <li>Then a seperator that I added of dashed lines in green: '<font color="green">---------</font>'</li>
+    <li>Then a separator that I added of dashed lines in green: '<font color="green">---------</font>'</li>
     <li>Next, are the few shot examples. Each one is labeled as '<font color="darkblue">### EXAMPLE <i>N</i> ###</font>' where <i>N</i> is a ordinal. The labels are in dark blue and each historical example is in dark red.
     The color is not part of the prompt but shown here for clarity.</li></ul></font></td>
     <td></td></tr>
@@ -1011,7 +984,7 @@ def use_case_selector():
                         Given some text, determine if the text was generated by a human or a language model.
                     </td>
                     <td>
-                        <a href="https://kaggle.com">Kaggle</a>
+                        <a href="https://www.kaggle.com/competitions/llm-detect-ai-generated-text/data?select=train_essays.csv">Kaggle</a>
                     </td>
                 </tr>
                 <tr>
