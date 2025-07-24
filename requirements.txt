@@ -1,5 +1,6 @@
 gunicorn
 openai
+requests
 flask
 pandas
 boto3
