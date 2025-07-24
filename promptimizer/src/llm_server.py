@@ -326,6 +326,12 @@ def prompt_preview():
     </tr>
     <tr>
         <td></td>
+        <td>Password</td>
+        <td><input name="password" type="text"></input>
+        <td></td>
+    </tr>
+    <tr>
+        <td></td>
         <td></td>
         <td><input type=submit value=submit></input>
         <td></td>
@@ -1028,4 +1034,10 @@ def use_case_selector():
     </tr>
 </table>
 """
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=80)
+
+
 
