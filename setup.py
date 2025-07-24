@@ -1,7 +1,7 @@
 from setuptools import setup
 
-setup(name='quante_carlo',
-      version='0.5',
+setup(name='promptimizer',
+      version='0.5.1',
       description='Prompt Optimization server.',
       url='https://quantecarlo.com',
       author='sign-of-fourier',
