@@ -74,21 +74,21 @@ def call_nova(system, user, config):
 
 
 
-model_catalog = {'nova-micro': 'us.amazon.nova-micro-v1:0',
-                 'nova-pro': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1': 'us.amazon.nova-micro-v1:0',
-                 'nova-lite': 'us.amazon.nova-micro-v1:0',
-                 'nova-micro': 'us.amazon.nova-micro-v1:0',
-                 'nova-pro': 'us.amazon.nova-micro-v1:0',
-                 'claude-3.5-haiku': 'us.amazon.nova-micro-v1:0',
-                 'claude-3-haiku': 'us.amazon.nova-micro-v1:0',
-                 'claude-3.5-sonnet': 'us.amazon.nova-micro-v1:0',
-                 'claude-3.5-sonnet-v2': 'us.amazon.nova-micro-v1:0',
-                 'claude-3-opus': 'us.amazon.nova-micro-v1:0',
-                 'claude-3-sonnet': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1-405b-instruct': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1-70b-instruct': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0'
+batchrock_model_catalog = {'nova-micro': 'us.amazon.nova-micro-v1:0',
+                           'nova-pro': 'us.amazon.nova-micro-v1:0',
+                           'llama-3.1': 'us.amazon.nova-micro-v1:0',
+                           'nova-lite': 'us.amazon.nova-micro-v1:0',
+                           'nova-micro': 'us.amazon.nova-micro-v1:0',
+                           'nova-pro': 'us.amazon.nova-micro-v1:0',
+                           'claude-3.5-haiku': 'us.amazon.nova-micro-v1:0',
+                           'claude-3-haiku': 'us.amazon.nova-micro-v1:0',
+                           'claude-3.5-sonnet': 'us.amazon.nova-micro-v1:0',
+                           'claude-3.5-sonnet-v2': 'us.amazon.nova-micro-v1:0',
+                           'claude-3-opus': 'us.amazon.nova-micro-v1:0',
+                           'claude-3-sonnet': 'us.amazon.nova-micro-v1:0',
+                           'llama-3.1-405b-instruct': 'us.amazon.nova-micro-v1:0',
+                           'llama-3.1-70b-instruct': 'us.amazon.nova-micro-v1:0',
+                           'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0'
 }
 
 def kick_off(input_path, output_path, job_id, model):
@@ -116,7 +116,7 @@ def kick_off(input_path, output_path, job_id, model):
     try:
         response=boto3_bedrock.create_model_invocation_job(
             roleArn = 'arn:aws:iam::344400919253:role/bedrock_batch',
-            modelId = model_catalog[model],
+            modelId = batchrock_model_catalog[model],
         
             jobName=job_id + '-' + model,
             inputDataConfig=inputDataConfig,
@@ -184,7 +184,7 @@ def batchrock(use_case, jsonl, models):
 
 
     for model_name in models.keys():
-        if models[model_name] >=100:
+        if (models[model_name] >=100) & (model_name in batchrock_model_catalog.keys()):
             filename = f'{random_string}/{model_name}.jsonl'
             filenames.append(filename)
             client.put_object(Body="\n".join(jsonl[:models[model_name]]),
@@ -196,6 +196,10 @@ def batchrock(use_case, jsonl, models):
             with open('/tmp/' + random_string + '-' + model_name + '.jsonl', 'w') as f:
                 f.write("\n".join(jsonl))
             client.close()
+        elif (models[model_name] >= 100):
+            print (f'unkoiwn model: {model_name}')
+            return 'ERROR', 'unknown model', model_name
+
     return jobArns, key_path, random_string
 
 
@@ -287,38 +291,6 @@ def enumerate_prompts():
             total_calls += int(request.form[k])
     
     jsonl = make_jsonl(prompt_system, prompt_user, deployment, demo_path)
-    print(len(jsonl), 'prompts')
-    #jsonl = []
-    #for i in range(max_records):
-    #    if use_case == 'defect_detector':
-    ##        samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
-    #                    [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
-
-
-    #        query = {'custom_id': 'JOB_1_{}'.format(i),
-    #                     'method': 'POST',
-    #                     'url': '/chat/completions',
-    #                     'body': {
-    #                         'model': 'gpt-4o-mini-batch',
-    #                         'temperature': .7,
-    #                         'messages': [
-    #                             {'role': 'system', 'content': prompt_system},
-    #                             {'role': 'user', 'content': [{"type": "text", "text": prompt_user}] + samples}
-    #                            ]
-    #                        }
-    #                    }
-
-    #    else:
-    #        query = {"recordId":  "JOB_1_RECORD_{}".format(i),
-    #                     "modelInput": {"schemaVersion": "messages-v1",
-    #                                    "system": [{"text": prompt_system}],
-    #                                    "messages": [{"role": "user",
-    #                                                  "content": [{"text": "{}".format(prompt_user)} ] }] ,
-    #                                    "inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .9 }
-    #                                    }
-    #                    }
-
-    #    jsonl.append(json.dumps(query))
 
     if deployment == 'azure':
         with open('/tmp/jobs.jsonl', 'w') as f:
@@ -329,7 +301,8 @@ def enumerate_prompts():
     else:
         jobArns, key_path, random_string = batchrock(use_case, jsonl, models)
     
-    hidden_variables = hidden.format('deployment', deployment)
+
+    hidden_variables = hidden.format('deployment', deployment)+hidden.format('models', ';'.join([m for m in models.keys() if models[m] >= 100]))
     for h in ['separator', 'label', 'task_system', 'evaluator']:
         hidden_variables += hidden.format(h, request.form[h])
 
@@ -346,6 +319,8 @@ def check_status():
         deployment = request.form['deployment']
     else:
         deployment = ''
+    models = request.form['models']
+
     #if request.form['deployment'] == 'bedrock': # same as next_step=='optimize'
     if (request.args.get('next_action') == 'iterate') | (deployment=='azure'):
         azure_client = openai.AzureOpenAI(
@@ -365,7 +340,7 @@ def check_status():
         elif batch_response.status == 'completed':
 
             hidden_variables = ''
-            for v in ['separator', 'label', 'task_system', 'evaluator']:
+            for v in ['separator', 'label', 'task_system', 'evaluator', 'models']:
                 hidden_variables += hidden.format(v, request.form[v])
 
             #azure_client.files.delete(request.form['filename_id'])
@@ -388,8 +363,9 @@ def check_status():
 
                 return webpages.optimize_form.format(search_space_message, hidden_variables, batch_response.output_file_id, request.form['key_path'])
             else:
-                return bayes(use_case, batch_response.output_file_id, request.form['key_path'], request.form['setup_id'],
-                             request.form['separator'], request.form['label'], request.form['task_system'], request.form['filename_ids'], request.form['evaluator'])
+                return bayes(use_case, batch_response.output_file_id, request.form['key_path'], request.form['setup_id'], 
+                             request.form['separator'], request.form['label'], request.form['task_system'], request.form['models'], 
+                             request.form['filename_ids'], request.form['evaluator'])
         else:
             azure_client.close()
 
@@ -398,38 +374,38 @@ def check_status():
     elif request.args.get('next_action') == 'optimize':
 
         jobArns = request.form['jobArn'].split(';')
-        #boto3_variables = "\n".join([hidden.format('job_id-{}'.format(i), j.split('/')[-1]) for i, j in enumerate(jobArns)])
         bedrock = boto3.client(service_name="bedrock", aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
                                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
         key_path = request.form['key_path']
         filename_id = request.form['filename_id']
-        #prompts = get_prompts(request.form['key_path']+'/output/' + filename_id)
-        #s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-        #                  aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-        #s3.put_object(Body="|".join(prompts).encode('utf-8'),
-        #              Bucket=bucket, Key=request.form['key_path'] + '/output/' + filename_id + '/consolidated.csv')
-        #s3.close()
-
-
-
-        #use_case = request.args.get('use_case')
-    #hidden_variables = request.form['hidden_variables']
+        
         hidden_variables = ''
-        for v in ['separator', 'label', 'task_system', 'evaluator']:
+        for v in ['separator', 'label', 'task_system', 'evaluator','models']:
             hidden_variables += hidden.format(v, request.form[v])
 
         status = [bedrock.get_model_invocation_job(jobIdentifier=j)['status'] for j in jobArns]
+        status_print = [m + ' &nbsp; ' + s for s, m in zip(status, models.split(';'))]
+
         bedrock.close() 
-        finished = sum([1 if x == 'Completed' else 0 for x in status]) == len(status) 
-    #status = boto3_bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
+        finished = sum([1 if x == 'Completed' else 0 for x in status]) == len(status)
+
         if finished:
-
-
-
-            prompts = get_prompts(request.form['key_path']+'/output/' + filename_id)
+        #    prompts = []#get_prompts(request.form['key_path']+'/output/' + filename_id, [j.split('/')[-1] for j in jobArns], models.split(';'))
             s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+
+
+            jsonl = []
+
+            for j, m in zip([j.split('/')[-1] for j in jobArns], models.split(';')):
+                print(request.form['key_path']+'/output/' + filename_id + '/' + j + '/' + m)
+                obj = s3.get_object(Bucket=bucket, Key=request.form['key_path'] + f'/output/{filename_id}/{j}/{m}.jsonl.out')
+                jsonl += obj['Body'].read().decode('utf-8').split("\n")
+
+
+            prompts = [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
+
             s3.put_object(Body="|".join(prompts).encode('utf-8'),
                           Bucket=bucket, Key=request.form['key_path'] + '/output/' + filename_id + '/consolidated.csv')
             s3.close()
@@ -438,7 +414,7 @@ def check_status():
             message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
             return webpages.optimize_form.format(message, hidden_variables, filename_id, key_path)
         else:
-            return "<br>\n".join(status) + "\n<br>" + "Use your back button to check again in a little while."
+            return "<br>\n".join(status_print) + "\n<br>" + "Use your back button to check again in a little while."
 
     else:
         return 'no next_action'
@@ -459,28 +435,20 @@ from scipy.stats import norm
 
 
 
-def get_prompts(prompt_key):
+def get_prompts(prompt_key, job_ids, models):
 
      s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
      jsonl = []
-     #s3_path = key_path + '/output/{}'
 
-     models = []
-     #for subdir in subdirectories:
-     #    print(subdir)
-     files = s3.list_objects_v2(Bucket = bucket, Prefix = prompt_key)
-     for file in files['Contents']:
-         components = file['Key'].split('/')
-         if components[-1] != 'manifest.json.out':
-             m = re.sub('.jsonl.out', '', components[-1])
-             models.append(m)
-             obj = s3.get_object(Bucket=bucket, Key=file['Key'])
-             jsonl += obj['Body'].read().decode('utf-8').split("\n")
+     for j, m in zip(job_ids, models):
+         print(prompt_key + '/' + j + '/' + m)
+         obj = s3.get_object(Bucket=bucket, Key=prompt_key + '/' + j + '/' + m + '.jsonl.out')
+         jsonl += obj['Body'].read().decode('utf-8').split("\n")
+
 
      s3.close()
-     print(prompt_key)
      return [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
 
 
@@ -494,7 +462,8 @@ def pre_optimize():
      label = request.form['label']
      task_system = request.form['task_system']
      evaluator = request.form['evaluator']
-     
+     models = request.form['models']
+
      subdirectories = [filename_id + '/' + request.form[k] for k in request.form.keys() if k[:6] == 'job_id']
 
 
@@ -524,10 +493,10 @@ def pre_optimize():
      s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + filename_id + '.mbd')
      s3.close()
      #print('optimizing')
-     return optimize(use_case, range(4), task_system, separator, key_path, label, evaluator, filename_id)
+     return optimize(use_case, range(4), task_system, separator, key_path, label, evaluator, filename_id, models)
 
 
-def optimize(use_case, prompt_ids, task_system, separator, key_path, label, evaluator, setup_id, filename_ids = '', performance_report = ''):
+def optimize(use_case, prompt_ids, task_system, separator, key_path, label, evaluator, setup_id, models, filename_ids = '', performance_report = ''):
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
@@ -583,7 +552,7 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
 
     hidden_variables = hidden.format('separator', separator) + hidden.format('setup_id', setup_id)+\
             hidden.format('label', label) + hidden.format('task_system', task_system) + hidden.format('filename_ids', filename_ids)+\
-            hidden.format('evaluator', evaluator)
+            hidden.format('evaluator', evaluator) + hidden.format('models', models)
 
     return webpages.check_status_form.format(use_case, 'iterate', preview_data, hidden_variables, batch_response_id, key_path, random_string) + performance_report
     
@@ -638,7 +607,7 @@ def get_embeddings(input_text):
 
 
 def bayes(use_case, filename_id, key_path, setup_id, separator, 
-          label, task_system, filename_ids, evaluator):
+          label, task_system, models, filename_ids, evaluator):
 
     print(key_path)
     print(setup_id)
@@ -675,6 +644,8 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
                         prompt_ids.append(custom_ids_components[1])
                         record_ids.append(custom_ids_components[2])
                         predictions.append(prediction)
+                #with open('/tmp/' + filename, 'w') as f:
+                #    f.write(raw)
 
             #except Exception as e:
             #    print(e)
@@ -688,7 +659,7 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     training_df = json.loads(pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id).to_json())
     truth = training_df['output']
 
-   # evaluator = 'auc'
+    #evaluator = 'auc'
 
     if evaluator == 'accuracy':
         scores_by_prompt, performance_report = accuracy(predictions_df, truth)
@@ -700,10 +671,12 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
+    obj = s3.get_object(Bucket=bucket, Key=key_path+'/output/'+setup_id + '/consolidated.csv')
+    prompts = obj['Body'].read().decode('utf-8').split("|")
 
     obj = s3.get_object(Bucket=bucket, Key=key_path + '/embeddings/' + setup_id + '.mbd')
-    embeddings_raw = obj['Body'].read().decode('utf-8').split("\n")
-    embeddings_raw = [[float(x) for x in e.split(',')] for e in embeddings_raw]
+    #embeddings_raw = obj['Body'].read().decode('utf-8').split("\n")
+    embeddings_raw = [[float(x) for x in e.split(',')] for e in obj['Body'].read().decode('utf-8').split("\n")]
     scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
     unscored_embeddings = []
     unscored_embeddings_id_map = {}
@@ -717,6 +690,17 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
 
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
 
+
+    best = -1000
+    s = [-1]
+    for s in scores_by_prompt.keys():
+        if scores_by_prompt[s] > best:
+            best = scores_by_prompt[s]
+            best_prompt_id = s
+        print('prompt id:', s, ', score: ', scores_by_prompt[s])
+
+    print(prompts[int(best_prompt_id)])
+    
     gpr = GaussianProcessRegressor(kernel = Matern() + WhiteKernel())
     scores_ecdf = ecdf(Q)
     # convert to lognormal
@@ -733,14 +717,14 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     except Exception as e:
         print(e)
         print('might have the wrong evaluation function', evaluator)
-    performance_report += "Best: {}\n".format(max(Q))
+    performance_report += "<hr>{}<hr>\nBest: {}\n".format(prompts[int(best_prompt_id)], max(Q))
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
 
     #return optimize(range(4), task_system, separator, key_path, label, evaluator, filename_id)
 
     return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], task_system,
-                    separator, key_path, label, evaluator, setup_id,
+                    separator, key_path, label, evaluator, setup_id,models,
                     filename_ids, performance_report)
 
 
@@ -768,6 +752,7 @@ def auc(predictions_df, truth):
     target =[]
 
     for prompt_id in predictions_df['prompt_id'].unique():
+        print(prompt_id)
         df = predictions_df[predictions_df['prompt_id'] == prompt_id]
         prompt_auc[prompt_id] = roc_auc_score([1 if truth[str(x)] == True else 0 for x in df['record_id']], 
                                               [probability(x.lower()) for x in df['prediction']])
