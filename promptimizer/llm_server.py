@@ -2,6 +2,8 @@ from flask import Flask, send_file
 from flask import request
 import pandas as pd
 import re
+import base64
+import httpx
 from importlib import import_module
 import boto3
 import json
@@ -196,46 +198,38 @@ def batchrock(use_case, jsonl, models):
             client.close()
     return jobArns, key_path, random_string
 
-@app.route("/enumerate_prompts", methods=['POST'])
-def enumerate_prompts():
 
-    if request.files['demonstrations'].filename:
-        if 'demonstrations' in request.files.keys():
-            with open('/tmp/demonstrations.csv', 'wb') as f:
-                f.write(request.files['demonstrations'].stream.read())
-            demo_df = pd.read_csv('/tmp/demonstrations.csv')
-            demo_true = demo_df[demo_df['output'] == True]
-            demo_false = demo_df[demo_df['output'] == False]
-            demonstrations = True
-        else:
-            return 'no demonstrations in files'
+
+def make_jsonl(prompt_system, prompt_user, deployment, demo_path = None):
+
+    if demo_path:
+        demo_df = pd.read_csv(demo_path)
+        demo_true = demo_df[demo_df['output'] == True]
+        demo_false = demo_df[demo_df['output'] == False]
+        demonstrations = True
     else:
-        demonstrtions = False
+        demonstrations = False
 
-    deployment = request.args.get('deployment', '')
-    n_rows = request.args.get('rows', '')
-    use_case = request.args.get('use_case', '')
-    password = request.form['password']
-    if password != os.environ['APP_PASSWORD']:
-        return 'Wrong password ... wah wah'
-    prompt_user = request.form['writer_user']
-    prompt_system = request.form['writer_system']
-    models = {}
-    total_calls = 0
 
-    for k in request.form.keys():
-        if 'model' == k[:5]:
-            models[k[6:]] = int(request.form[k])
-            total_calls += int(request.form[k])
-    
+
     jsonl = []
     for i in range(max_records):
-        if use_case == 'defect_detector':
-            samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
+        if demonstrations:
+            if deployment == 'azure':
+                samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
                         [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
+            else:
+                samples = [{"type": "image", "source": 
+                            {"type": "base64", "media_type": "image/jpeg",
+                             "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_true['input'].sample(2)] + \
+                          [{"type": "image", "source":
+                            {"type": "base64", "media_type": "image/jpeg",
+                             "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_false['input'].sample(2)] 
+        else:
+            samples = []
 
-
-            query = {'custom_id': 'JOB_1_{}'.format(i),
+        if deployment == 'azure':
+            query = {'custom_id': 'JOB_1_RECORD_{}'.format(i),
                          'method': 'POST',
                          'url': '/chat/completions',
                          'body': {
@@ -253,22 +247,87 @@ def enumerate_prompts():
                          "modelInput": {"schemaVersion": "messages-v1",
                                         "system": [{"text": prompt_system}],
                                         "messages": [{"role": "user",
-                                                      "content": [{"text": "{}".format(prompt_user)} ] }] ,
+                                                      "content": [{"text": "{}".format(prompt_user)} ] }] + samples ,
                                         "inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .9 }
                                         }
                         }
-
         jsonl.append(json.dumps(query))
 
-    if use_case == 'defect_detector':
-            with open('/tmp/jobs.jsonl', 'w') as f:
-                f.write("\n".join(jsonl))
-            jobArns = [azure_batch('/tmp/jobs.jsonl')]
-            key_path = 'promptimizer/AZURE'
-            random_string = 'not applicable'
-    else:
+    return jsonl
 
-            jobArns, key_path, random_string = batchrock(use_case, jsonl, models)
+
+
+
+@app.route("/enumerate_prompts", methods=['POST'])
+def enumerate_prompts():
+
+    if request.files['demonstrations'].filename:
+        demo_path = '/tmp/demonstrations.csv'
+
+        with open(demo_path, 'wb') as f:
+            f.write(request.files['demonstrations'].stream.read())
+        demo_path = '/tmp/demonstrations.csv'
+    else:
+        demo_path = ''
+
+    deployment = request.args.get('deployment', '')
+    n_rows = request.args.get('rows', '')
+    use_case = request.args.get('use_case', '')
+    password = request.form['password']
+    if password != os.environ['APP_PASSWORD']:
+        return 'Wrong password ... wah wah'
+    prompt_user = request.form['writer_user']
+    prompt_system = request.form['writer_system']
+    models = {}
+    total_calls = 0
+
+    for k in request.form.keys():
+        if 'model' == k[:5]:
+            models[k[6:]] = int(request.form[k])
+            total_calls += int(request.form[k])
+    
+    jsonl = make_jsonl(prompt_system, prompt_user, deployment, demo_path)
+    print(len(jsonl), 'prompts')
+    #jsonl = []
+    #for i in range(max_records):
+    #    if use_case == 'defect_detector':
+    ##        samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
+    #                    [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
+
+
+    #        query = {'custom_id': 'JOB_1_{}'.format(i),
+    #                     'method': 'POST',
+    #                     'url': '/chat/completions',
+    #                     'body': {
+    #                         'model': 'gpt-4o-mini-batch',
+    #                         'temperature': .7,
+    #                         'messages': [
+    #                             {'role': 'system', 'content': prompt_system},
+    #                             {'role': 'user', 'content': [{"type": "text", "text": prompt_user}] + samples}
+    #                            ]
+    #                        }
+    #                    }
+
+    #    else:
+    #        query = {"recordId":  "JOB_1_RECORD_{}".format(i),
+    #                     "modelInput": {"schemaVersion": "messages-v1",
+    #                                    "system": [{"text": prompt_system}],
+    #                                    "messages": [{"role": "user",
+    #                                                  "content": [{"text": "{}".format(prompt_user)} ] }] ,
+    #                                    "inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .9 }
+    #                                    }
+    #                    }
+
+    #    jsonl.append(json.dumps(query))
+
+    if deployment == 'azure':
+        with open('/tmp/jobs.jsonl', 'w') as f:
+            f.write("\n".join(jsonl))
+        jobArns = [azure_batch('/tmp/jobs.jsonl')]
+        key_path = 'promptimizer/AZURE'
+        random_string = 'not applicable'
+    else:
+        jobArns, key_path, random_string = batchrock(use_case, jsonl, models)
     
     hidden_variables = hidden.format('deployment', deployment)
     for h in ['separator', 'label', 'task_system', 'evaluator']:
@@ -345,12 +404,12 @@ def check_status():
 
         key_path = request.form['key_path']
         filename_id = request.form['filename_id']
-        prompts = get_prompts(request.form['key_path']+'/output/' + filename_id)
-        s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-        s3.put_object(Body="|".join(prompts).encode('utf-8'),
-                      Bucket=bucket, Key=request.form['key_path'] + '/output/' + filename_id + '/consolidated.csv')
-        s3.close()
+        #prompts = get_prompts(request.form['key_path']+'/output/' + filename_id)
+        #s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+        #                  aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+        #s3.put_object(Body="|".join(prompts).encode('utf-8'),
+        #              Bucket=bucket, Key=request.form['key_path'] + '/output/' + filename_id + '/consolidated.csv')
+        #s3.close()
 
 
 
@@ -365,6 +424,16 @@ def check_status():
         finished = sum([1 if x == 'Completed' else 0 for x in status]) == len(status) 
     #status = boto3_bedrock.get_model_invocation_job(jobIdentifier=jobArn)['status']
         if finished:
+
+
+
+            prompts = get_prompts(request.form['key_path']+'/output/' + filename_id)
+            s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                              aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+            s3.put_object(Body="|".join(prompts).encode('utf-8'),
+                          Bucket=bucket, Key=request.form['key_path'] + '/output/' + filename_id + '/consolidated.csv')
+            s3.close()
+
             hidden_variables += "\n".join([hidden.format('job_id-{}'.format(i), j.split('/')[-1]) for i, j in enumerate(jobArns)])
             message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
             return webpages.optimize_form.format(message, hidden_variables, filename_id, key_path)
@@ -619,7 +688,7 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     training_df = json.loads(pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id).to_json())
     truth = training_df['output']
 
-    #evaluator = 'auc'
+   # evaluator = 'auc'
 
     if evaluator == 'accuracy':
         scores_by_prompt, performance_report = accuracy(predictions_df, truth)
@@ -659,7 +728,11 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
 
     batch_size = 3
     batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, 512, batch_size)
-    best_idx = bbo.get_best_batch(batch_mu, batch_sigma, batch_size)
+    try:
+        best_idx = bbo.get_best_batch(batch_mu, batch_sigma, batch_size)
+    except Exception as e:
+        print(e)
+        print('might have the wrong evaluation function', evaluator)
     performance_report += "Best: {}\n".format(max(Q))
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
