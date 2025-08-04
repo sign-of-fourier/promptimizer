@@ -252,7 +252,7 @@ enumerate_prompts =  """
         <td><b>Evaluation method</b> for label. Should match the prompt.</td>
         <td><select name="evaluator">
             <option value="accuracy">Accuracy</option>
-            <option valuie="AUC">AUC</option>
+            <option valuie="auc">AUC</option>
             </select>
         </td>
         <td></td>
