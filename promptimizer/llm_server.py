@@ -139,18 +139,22 @@ def prompt_preview():
     use_case = request.args.get('use_case')
     deployment = request.args.get('deployment')
     prompt_library = import_module('promptimizer.prompt_library.'+use_case)
-    options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 25, 50, 75, 100]])
+    options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 50, 100, 150, 200]])
     model_select = "        <td>\n                <select name=\"model-{}\">\n" + options + "\n            </select>\n        </td>\n"
     model_section = ''
-    for i, model_name in enumerate(['Nova Lite', 'Nova Micro', 'Nova Pro', 'claude 3.5 Haiku', 'claude-3.5-Sonnet', 'Claude 3.5 Sonnet V2',
+    for i, model_name in enumerate(['Nova Lite', 'Nova Micro', 'Nova Pro', 'Claude 3.5 Haiku', 'Claude-3.5-Sonnet', 'Claude 3.5 Sonnet V2',
                                     'Claude 3 Haiku', 'Claude 3 Opus', 'Claude 3 Sonnet', 'Llama 3.1 405B Instruct', 'Llama 3.1 70B Instruct',
-                                    'Llama 3.1 8B Instruct']):
-        if i % 2:
-            row_start = "            </td>\n"
-            row_end = "        </tr>\n"
+                                    'Llama 3.1 8B Instruct', 'Chat GPT 4o','Chat GPT mini', 'Chat GPT AGI']):
+        if i % 3:
+            K = i%3
+            row_start = ""#"            </td>\n"
+            if i % 3 == 1:
+                row_end = "        <td></td>"
+            else:
+                row_end = ""
         else:
             row_start = "        <tr>\n"
-            row_end = "            <td>\n"
+            row_end = "            <td></td>\n"
         model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(re.sub(' ', '-', model_name.lower())) + row_end + "\n"
 
     return webpages.enumerate_prompts.format(use_case, deployment, prompt_library.writer_system, prompt_library.writer_user, 
@@ -320,6 +324,12 @@ def check_status():
     else:
         deployment = ''
     models = request.form['models']
+    
+    parameters = {'batch_size': 4,
+                  'n_batches': 1024}
+   #parameters = {'batch_size': request.form['batch_size'],
+   #               'n_batches': request.form['n_batches']}
+
 
     #if request.form['deployment'] == 'bedrock': # same as next_step=='optimize'
     if (request.args.get('next_action') == 'iterate') | (deployment=='azure'):
@@ -365,7 +375,7 @@ def check_status():
             else:
                 return bayes(use_case, batch_response.output_file_id, request.form['key_path'], request.form['setup_id'], 
                              request.form['separator'], request.form['label'], request.form['task_system'], request.form['models'], 
-                             request.form['filename_ids'], request.form['evaluator'])
+                             parameters, request.form['filename_ids'], request.form['evaluator'])
         else:
             azure_client.close()
 
@@ -607,7 +617,7 @@ def get_embeddings(input_text):
 
 
 def bayes(use_case, filename_id, key_path, setup_id, separator, 
-          label, task_system, models, filename_ids, evaluator):
+          label, task_system, models, parameters, filename_ids, evaluator):
 
     print(key_path)
     print(setup_id)
@@ -709,11 +719,10 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     mu, sigma = gpr.predict(unscored_embeddings, return_cov=True)
 
 #    print(mu)
-
-    batch_size = 3
-    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, 512, batch_size)
+    print(parameters)
+    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, parameters['n_batches'], parameters['batch_size'])
     try:
-        best_idx = bbo.get_best_batch(batch_mu, batch_sigma, batch_size)
+        best_idx = bbo.get_best_batch(batch_mu, batch_sigma, parameters['batch_size'])
     except Exception as e:
         print(e)
         print('might have the wrong evaluation function', evaluator)
@@ -769,16 +778,23 @@ def accuracy(predictions_df, truth):
     total_collect_scores = {}
     #results = [json.loads(model)['modelOutput']['output']['message']['content'][0]['text']
     prompt_accuracy = {}
+    test_size = {}
     for p in predictions_df['prompt_id'].unique():
+        test_size[p] = predictions_df[predictions_df['prompt_id'] == p].shape[0]
         prompt_accuracy[p] = 0
 
     for prompt_id, record_id, prediction in zip(predictions_df['prompt_id'], predictions_df['record_id'], predictions_df['prediction']):
         if prediction.lower() == truth[str(record_id)]:
             prompt_accuracy[prompt_id] += 1
-        else:
-            print(prediction.lower(), ' : ', record_id, ' : ', truth[str(record_id)])
+    #    else:
+    #        print(prediction.lower(), ' : ', record_id, ' : ', truth[str(record_id)])
 
-    return prompt_accuracy, 'your doing great'
+    for prompt_id in prompt_accuracy.keys():
+        performance_report += prompt_id + ' &nbsp ' + str(prompt_accuracy[prompt_id]/test_size[prompt_id]) + "<br>\n"
+
+
+
+    return prompt_accuracy, performance_report
 
 #5187555177
     performance_report += "\nTotal\n"
