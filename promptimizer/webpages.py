@@ -164,6 +164,8 @@ check_status_form = """<html><title>Quante Carlo</title><br><body><p>
     <td>
         {}
         <input type="text" name="jobArn" value="{}"></input>
+        <input type="hidden" name="batch_size" value="4"></input>
+        <input type="hidden" name="n_batches" value="1024"></input>
     </td>
     <td></td>
   </tr>
@@ -264,6 +266,15 @@ enumerate_prompts =  """
         <td>
             <table border=1>
                 <tr>
+                    <td>
+                        <u>Model Name</u>
+                    </td>
+                    <td>
+                        <u>N Prompts</u>
+                    </td>
+                    <td>
+                        &nbsp; &nbsp; 
+                    </td>
                     <td>
                         <u>Model Name</u>
                     </td>
