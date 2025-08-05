@@ -11,7 +11,7 @@ import datetime
 import random
 import string
 import openai
-from  promptimizer import webpages
+from  promptimizer import webpages, css
 
 app = Flask(__name__)
 
@@ -157,9 +157,10 @@ def prompt_preview():
             row_end = "            <td></td>\n"
         model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(re.sub(' ', '-', model_name.lower())) + row_end + "\n"
 
-    return webpages.enumerate_prompts.format(use_case, deployment, prompt_library.writer_system, prompt_library.writer_user, 
-           prompt_library.separator, prompt_library.task_system, prompt_library.label_name,
-            model_section)
+    return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, 
+                                             use_case, deployment, prompt_library.writer_system, prompt_library.writer_user, 
+                                             prompt_library.separator, prompt_library.task_system, prompt_library.label_name,
+                                             model_section)
 
 
 hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
@@ -288,11 +289,14 @@ def enumerate_prompts():
     prompt_system = request.form['writer_system']
     models = {}
     total_calls = 0
+    sidebar = "<table><tr><td colspan=2><b>Models</b></td></tr>\n"
 
     for k in request.form.keys():
         if 'model' == k[:5]:
             models[k[6:]] = int(request.form[k])
             total_calls += int(request.form[k])
+            if int(request.form[k]) > 0:
+                sidebar += "<tr><td>" + k[6:] + "</td><td>" + request.form[k] + "</td></tr>\n"
     
     jsonl = make_jsonl(prompt_system, prompt_user, deployment, demo_path)
 
@@ -307,18 +311,26 @@ def enumerate_prompts():
     
 
     hidden_variables = hidden.format('deployment', deployment)+hidden.format('models', ';'.join([m for m in models.keys() if models[m] >= 100]))
-    for h in ['separator', 'label', 'task_system', 'evaluator']:
+    for h in ['separator', 'label', 'evaluator', 'task_system']:
         hidden_variables += hidden.format(h, request.form[h])
+    sidebar += "<tr><td><b>Evaluator</b></td><td>"+request.form['evaluator']+"</td></tr>\n</table>"
 
     message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes and use the job_ids and key_paths below."
-    return webpages.check_status_form.format(use_case, 'optimize', message, hidden_variables, ";".join(jobArns), key_path, random_string)        
+    return webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar, use_case, 'optimize', 
+                                             message, hidden_variables, ";".join(jobArns), key_path, random_string, '')        
 
+
+
+
+tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
 
 @app.route("/check_status", methods=["POST"])
 def check_status():
 
     search_space_message =  "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
     use_case = request.args.get('use_case')
+    sidebar = "<table>" + tworows.format('Use Case', use_case) + \
+            tworows.format('Evaluator', request.form['evaluator'])+"</table>"
     if 'deployment' in request.form.keys():
         deployment = request.form['deployment']
     else:
@@ -370,8 +382,9 @@ def check_status():
 
                 s3.close()
 
-
-                return webpages.optimize_form.format(search_space_message, hidden_variables, batch_response.output_file_id, request.form['key_path'])
+                sidebar = "pease and carrots"
+                return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, search_space_message, use_case, 
+                                                     hidden_variables, batch_response.output_file_id, request.form['key_path'])
             else:
                 return bayes(use_case, batch_response.output_file_id, request.form['key_path'], request.form['setup_id'], 
                              request.form['separator'], request.form['label'], request.form['task_system'], request.form['models'], 
@@ -379,7 +392,8 @@ def check_status():
         else:
             azure_client.close()
 
-            return "<br>\n" + batch_response.status + "\n<br>" + "Use your back button to check again in a little while."
+            return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar,
+                                           "<br>\n<div class=\"shaded\">" + batch_response.status + "</div>\n<br>" + "Use your back button to check again in a little while.")
 
     elif request.args.get('next_action') == 'optimize':
 
@@ -422,9 +436,9 @@ def check_status():
 
             hidden_variables += "\n".join([hidden.format('job_id-{}'.format(i), j.split('/')[-1]) for i, j in enumerate(jobArns)])
             message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
-            return webpages.optimize_form.format(message, hidden_variables, filename_id, key_path)
+            return webpages.optimize_form.format(css.style, webpages.header_and_nav, "lorem ipsum", message, use_case, hidden_variables, filename_id, key_path)
         else:
-            return "<br>\n".join(status_print) + "\n<br>" + "Use your back button to check again in a little while."
+            return webpages.waiting(css.style, webpages.header_and_nav, "<br>\n".join(status_print))# + "\n<br>" + "Use your back button to check again in a little while."
 
     else:
         return 'no next_action'
@@ -506,7 +520,8 @@ def pre_optimize():
      return optimize(use_case, range(4), task_system, separator, key_path, label, evaluator, filename_id, models)
 
 
-def optimize(use_case, prompt_ids, task_system, separator, key_path, label, evaluator, setup_id, models, filename_ids = '', performance_report = ''):
+def optimize(use_case, prompt_ids, task_system, separator, key_path, label, evaluator, 
+             setup_id, models, filename_ids = '', performance_report = ()):
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
@@ -517,7 +532,7 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
     if ('input' in df.columns) & ('output' in df.columns):
         preview_text = []
         preview_target = []
-        preview_data = '<table border=1><tr><td></td><td>Data Preivew</td><td></td></tr>'
+        preview_data = '<table border=1><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
         for x in range(min(3, df.shape[0])):
             preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
             preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
@@ -558,13 +573,25 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
         f.write("\n".join(evaluation_jsonl))
 
     batch_response_id = azure_batch(output_filename)
+    n_training_examples = df.shape[0]
+    sidebar = f"<table>" + tworows.format("Evaluator",evaluator)+\
+            tworows.format("Use Case", use_case)+\
+            tworows.format("N Rows", n_training_examples)+ "</table>"
 
 
     hidden_variables = hidden.format('separator', separator) + hidden.format('setup_id', setup_id)+\
             hidden.format('label', label) + hidden.format('task_system', task_system) + hidden.format('filename_ids', filename_ids)+\
             hidden.format('evaluator', evaluator) + hidden.format('models', models)
 
-    return webpages.check_status_form.format(use_case, 'iterate', preview_data, hidden_variables, batch_response_id, key_path, random_string) + performance_report
+    if len(performance_report) > 0:
+        history, best_prompt = performance_report
+    else:
+        history = ''
+        best_prompt = ''
+
+    return webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar + history, use_case, 
+                                             'iterate', preview_data, hidden_variables, batch_response_id, key_path, random_string,
+                                             f"<div class=\"shaded\"><br>{best_prompt}<br></div>")
     
 
 def azure_batch(output_filename):
@@ -726,7 +753,8 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     except Exception as e:
         print(e)
         print('might have the wrong evaluation function', evaluator)
-    performance_report += "<hr>{}<hr>\nBest: {}\n".format(prompts[int(best_prompt_id)], max(Q))
+    performance_report += "</table>"
+    best_prompt = "<hr>{}<hr>\nBest: {}<br>\n".format(prompts[int(best_prompt_id)], max(Q))
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
 
@@ -734,7 +762,7 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
 
     return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], task_system,
                     separator, key_path, label, evaluator, setup_id,models,
-                    filename_ids, performance_report)
+                    filename_ids, (performance_report, best_prompt))
 
 
 from sklearn.metrics import roc_auc_score
@@ -774,7 +802,7 @@ def auc(predictions_df, truth):
 
 
 def accuracy(predictions_df, truth):
-    performance_report = ""
+    performance_report = "<table><tr><td><b>Prompt ID</b></td><td><b>Score</b></td></tr>\n"
     total_collect_scores = {}
     #results = [json.loads(model)['modelOutput']['output']['message']['content'][0]['text']
     prompt_accuracy = {}
@@ -790,11 +818,11 @@ def accuracy(predictions_df, truth):
     #        print(prediction.lower(), ' : ', record_id, ' : ', truth[str(record_id)])
 
     for prompt_id in prompt_accuracy.keys():
-        performance_report += prompt_id + ' &nbsp ' + str(prompt_accuracy[prompt_id]/test_size[prompt_id]) + "<br>\n"
+        performance_report += tworows.format(prompt_id, round(prompt_accuracy[prompt_id]/test_size[prompt_id],4)) + "\n"
 
 
 
-    return prompt_accuracy, performance_report
+    return prompt_accuracy, performance_report + "</table>"
 
 #5187555177
     performance_report += "\nTotal\n"
@@ -824,7 +852,7 @@ def rage():
 
 @app.route("/")
 def use_case_selector():
-    return webpages.use_case_selector 
+    return webpages.use_case_selector.format(css.style, webpages.header_and_nav) 
 
 
 
