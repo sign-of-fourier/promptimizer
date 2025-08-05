@@ -95,15 +95,44 @@ rag_help_page = """<html>
 """
 
 
+waiting = """
+<html>
+<style>
+{}
+</style>
+{}
+<body>
+<div class="column side">
+{}
+</div>
+<div class="column middle">
+{}
+</div>
+"""
+
+
+
 
 optimize_form = """<html>
-<table border=1>
+<style>
+{}
+</style>
+{}
+<body>
+<div class="column side">
+<div class="rounded">
+{}
+</div>
+</div>
+<div class="column middle">
+<div class="rounded">
+<table border=0>
     <tr><td> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td>
         <td colspan=2>{}</td>
         <td>  &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td></tr>
     <tr>
         <td></td>
-        <form action="/optimize" method="POST" enctype="multipart/form-data">
+        <form action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
               <td>
                   Training Data File
               </td>
@@ -143,17 +172,34 @@ optimize_form = """<html>
 
             </form>
 </table>
+</div>
+</div>
+</html>
+
 """
 
 
 
-check_status_form = """<html><title>Quante Carlo</title><br><body><p>
+check_status_form = """<html>
+<style>
+{}
+</style>
+{}
+<br><body>
+<div class="column side">
+{}
+</div>
 <form action="/check_status?use_case={}&next_action={}" method="POST" enctype="multipart/form-data">
-<br>
-<table border=1>
+
+<div class="column middle">
+<div class="rounded">
+<table border=0>
     <tr>
         <td> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td>
-        <td colspan=2>{}</td>
+
+        <td colspan=2>
+            {}
+        </td>
         <td> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td>
     </tr>
   <tr>
@@ -199,14 +245,32 @@ check_status_form = """<html><title>Quante Carlo</title><br><body><p>
     </tr>
     </table>
 </form>
-
+</div>
+{}
+</div>
+</body>
+</html>
 """
 
 
 
 enumerate_prompts =  """
+<html>
+<style>
+{}
+</style>
 <br>
+<body>
+{}
+<div class="column side">
+Pease and carrots
+<br>
+</div>
+<div class="column middle">
+
 <form action="/enumerate_prompts?use_case={}&deployment={}" method="POST"  enctype="multipart/form-data">
+
+
 <table border=0>
     <tr>
         <td></td>
@@ -307,21 +371,45 @@ enumerate_prompts =  """
         <td></td>
     </tr>
 </table>
+</div>
 </form>
 """
+header_and_nav = """<title>Promptimizer by Quante Carlo</title>
+<div class="header">
+<p align="right"><table><tr><td>
+<h1>Promptimizer</h1></td>
+<td> &nbsp; &nbsp; &nbsp; &nbsp; </td><td rowspan=2>
+<img src="https://static.wixstatic.com/media/614008_6006e77a45db4c8ea97da77bc26cca7c~mv2.jpg/v1/fill/w_123,h_123,al_c,q_80,usm_0.66_1.00_0.01,enc_auto/qc%20logo.jpg"></img></p>
+</td></tr>
+<tr><td align="right">by Quante Carlo</td><td> &nbsp; </td> 
+</tr></table>
+</p>
+</div>
 
+<div class="topnav">
+<a href="https://quantecarlo.com">Quante Carlo</a>
+<a href="https://quantecarlo.com">QC</a>
+<a href="/rag">How to prepare RAG</a>
+</div>
+
+
+"""
 use_case_selector = """
 <html>
-<body><br>
+<style>
+{}
+</style>
+
+<body>
+{}
 <table border=0>
     <tr>
         <td>
             &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
         </td>
         <td>
-            <h1>Welcome to the Promptimizer</h1>
         </td>
-        <td align='right'>by Quante Carlo
+        <td align='right'>
 
         </td>
         <td>
@@ -399,7 +487,7 @@ use_case_selector = """
         </td>
     </tr>
 </table>
-
+</html>
 
 """
 
