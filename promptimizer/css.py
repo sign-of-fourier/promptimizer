@@ -43,6 +43,16 @@ body {
 }
 
 /* Left and right column */
+.column.side.small {
+  width: 10%;
+}
+
+/* Middle column */
+.column.middle.big {
+  width: 90%;
+}
+
+/* Left and right column */
 .column.side {
   width: 25%;
 }
