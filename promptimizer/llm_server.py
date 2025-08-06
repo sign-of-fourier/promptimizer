@@ -157,7 +157,7 @@ def prompt_preview():
             row_end = "            <td></td>\n"
         model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(re.sub(' ', '-', model_name.lower())) + row_end + "\n"
 
-    return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, 
+    return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, f"<b>Use Case:</b> &nbsp; {use_case}", 
                                              use_case, deployment, prompt_library.writer_system, prompt_library.writer_user, 
                                              prompt_library.separator, prompt_library.task_system, prompt_library.label_name,
                                              model_section)
@@ -646,11 +646,6 @@ def get_embeddings(input_text):
 def bayes(use_case, filename_id, key_path, setup_id, separator, 
           label, task_system, models, parameters, filename_ids, evaluator):
 
-    print(key_path)
-    print(setup_id)
-    print(filename_ids)
-
-
     azure_client = openai.AzureOpenAI(
             api_key=os.environ['AZURE_OPENAI_KEY'],
             api_version="2024-10-21",
@@ -662,7 +657,6 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     else:
         filename_ids = filename_ids + ';' + filename_id
 
-               #azure_client.files.delete(request.form['filename_id'])
     predictions = []
     prompt_ids = []
     record_ids = []
@@ -681,12 +675,6 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
                         prompt_ids.append(custom_ids_components[1])
                         record_ids.append(custom_ids_components[2])
                         predictions.append(prediction)
-                #with open('/tmp/' + filename, 'w') as f:
-                #    f.write(raw)
-
-            #except Exception as e:
-            #    print(e)
-            #    print(custom_ids_components)
 
 
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
@@ -696,7 +684,6 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     training_df = json.loads(pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id).to_json())
     truth = training_df['output']
 
-    #evaluator = 'auc'
 
     if evaluator == 'accuracy':
         scores_by_prompt, performance_report = accuracy(predictions_df, truth)
@@ -754,11 +741,10 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
         print(e)
         print('might have the wrong evaluation function', evaluator)
     performance_report += "</table>"
-    best_prompt = "<hr>{}<hr>\nBest: {}<br>\n".format(prompts[int(best_prompt_id)], max(Q))
+    best_prompt = "<hr>{}<hr>\nRaw Score: {}<br>\n".format(prompts[int(best_prompt_id)], max(Q))
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
 
-    #return optimize(range(4), task_system, separator, key_path, label, evaluator, filename_id)
 
     return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], task_system,
                     separator, key_path, label, evaluator, setup_id,models,
