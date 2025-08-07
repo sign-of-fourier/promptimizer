@@ -438,7 +438,8 @@ def check_status():
             message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
             return webpages.optimize_form.format(css.style, webpages.header_and_nav, "lorem ipsum", message, use_case, hidden_variables, filename_id, key_path)
         else:
-            return webpages.waiting(css.style, webpages.header_and_nav, "<br>\n".join(status_print))# + "\n<br>" + "Use your back button to check again in a little while."
+            return webpages.waiting.format(css.style, webpages.header_and_nav,
+                                           "<br>\n".join(status_print)+ "\n" , "Use your back button to check again in a little while.")
 
     else:
         return 'no next_action'
