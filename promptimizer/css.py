@@ -75,13 +75,13 @@ body {
 
 .rounded {
     border: 1px solid cadetblue;
-    border-radius: 30px;
+    border-radius: 15px;
 }
 
 .shaded {
     background: gainsboro;
     border: 1px solid cadetblue;
-    border-radius: 30px;
+    border-radius: 10px;
 }
 
 img {

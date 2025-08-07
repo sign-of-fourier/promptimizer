@@ -331,7 +331,7 @@ enumerate_prompts =  """
         <td></td>
         <td><b>Model</b></td>
         <td>
-            <table border=1>
+            <table border=0>
                 <tr>
                     <td>
                         <u>Model Name</u>

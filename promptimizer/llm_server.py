@@ -393,7 +393,7 @@ def check_status():
             azure_client.close()
 
             return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar,
-                                           "<br>\n<div class=\"shaded\">" + batch_response.status + "</div>\n<br>" + "Use your back button to check again in a little while.")
+                                           "<br>\n<div class=\"shaded\"><br> &nbsp; " + batch_response.status + "<br> &nbsp; </div>\n<br>" + "Use your back putton to check again in a little while.")
 
     elif request.args.get('next_action') == 'optimize':
 
@@ -436,10 +436,10 @@ def check_status():
 
             hidden_variables += "\n".join([hidden.format('job_id-{}'.format(i), j.split('/')[-1]) for i, j in enumerate(jobArns)])
             message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
-            return webpages.optimize_form.format(css.style, webpages.header_and_nav, "lorem ipsum", message, use_case, hidden_variables, filename_id, key_path)
+            return webpages.optimize_form.format(css.style, webpages.header_and_nav, "<br>lorem ipsum<br>", message, use_case, hidden_variables, filename_id, key_path)
         else:
             return webpages.waiting.format(css.style, webpages.header_and_nav,
-                                           "<br>\n".join(status_print)+ "\n" , "Use your back button to check again in a little while.")
+                                           "<br>\n".join(status_print)+ "\n<br>" , "Use your back button to check again in a little while.")
 
     else:
         return 'no next_action'
@@ -533,7 +533,7 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
     if ('input' in df.columns) & ('output' in df.columns):
         preview_text = []
         preview_target = []
-        preview_data = '<table border=1><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
+        preview_data = '<table border=0><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
         for x in range(min(3, df.shape[0])):
             preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
             preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
