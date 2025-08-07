@@ -262,11 +262,11 @@ enumerate_prompts =  """
 <br>
 <body>
 {}
-<div class="column side">
-Pease and carrots
+<div class="column side small">
+{}
 <br>
 </div>
-<div class="column middle">
+<div class="column middle big">
 
 <form action="/enumerate_prompts?use_case={}&deployment={}" method="POST"  enctype="multipart/form-data">
 
@@ -274,7 +274,10 @@ Pease and carrots
 <table border=0>
     <tr>
         <td></td>
-        <td colspan=2>Here you design your Meta Prompt, the prompts that will write candidates for your ideal prompt.</td>
+        <td colspan=2>
+             <br>
+             Here you design your Meta Prompt, the prompts that will write candidates for your ideal prompt.
+             <br></td>
         <td></td>
     </tr>
     <tr>
@@ -315,7 +318,7 @@ Pease and carrots
     </tr>
     <tr>
         <td></td>
-        <td><b>Evaluation method</b> for label. Should match the prompt.</td>
+        <td><b>Evaluation </b>method for label. Should match the prompt output.</td>
         <td><select name="evaluator">
             <option value="accuracy">Accuracy</option>
             <option valuie="auc">AUC</option>
@@ -328,7 +331,7 @@ Pease and carrots
         <td></td>
         <td><b>Model</b></td>
         <td>
-            <table border=1>
+            <table border=0>
                 <tr>
                     <td>
                         <u>Model Name</u>
