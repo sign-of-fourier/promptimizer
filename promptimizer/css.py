@@ -41,40 +41,60 @@ body {
   float: left;
   padding: 10px;
 }
-
-/* Left and right column */
-.column.side.small {
-  width: 10%;
-}
-
-/* Middle column */
-.column.middle.big {
-  width: 90%;
-}
-
-/* Left and right column */
-.column.side {
+.column.left {
+  background-color: aliceblue;
   width: 25%;
+  height: 500px;
+  overflow: auto;
 }
-
-/* Middle column */
 .column.middle {
-  width: 75%;
+  border: 1px solid black;
+  width: 70%;
+  background-color: cornslik;
+  height: 500px;
+  overflow: auto;
+  border-radius: 30px;
+}
+.column.small {
+  width: 5%;
 }
 
-.card {
-    border: 1px solid black;
-    border-radius: 3vmax;
-    position: fixed;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 90vw;
-    height: 90vh;
+.column.middle_top {
+
+  border: 0px;
+  height: 40%;
+  width: 100%;
+  overflow: auto;
 }
+
+.column.middle_middle {
+  height: 50%;
+  width: 100%;
+  border-radius: 10px;
+  background-color: blanchedalmond;
+  overflow: auto;
+}
+
+.column.middle_bottom{
+  border: 0px solid orange;
+  height: 10%;
+  overflow: auto;
+  width: 100%;
+}
+
+
+.column.middle_big {
+  width: 90%;
+  border: 1px solid orange;
+  border-radius 10px;
+  padding: 10px;
+}
+
+
 
 .rounded {
     border: 1px solid cadetblue;
+    height:380px;
     border-radius: 15px;
 }
 
@@ -90,7 +110,6 @@ img {
 }
 
 
-
 /* Clear floats after the columns */
 .row::after {
   content: "";
@@ -98,30 +117,7 @@ img {
   clear: both;
 }
 
-#rcorners1 {
-  border-radius: 25px 15px 20px 5px;
-  background: #73AD21;
-  padding: 20px;
-  width: 200px;
-  height: 150px;
-}
 
-#rcorners2 {
-  border-radius: 25px 15px 10px;
-  border: 2px solid #73AD21;
-  padding: 20px;
-  width: 200px;
-  height: 150px;
-}
-
-#rcorners3 {
-  border-radius: 25px;
-  background: url(paper.gif);
-  background-position: left top;
-  background-repeat: repeat;
-  padding: 20px;
-  width: 200px;
-  height: 150px;
 
 
 

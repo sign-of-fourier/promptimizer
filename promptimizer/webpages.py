@@ -95,22 +95,18 @@ rag_help_page = """<html>
 """
 
 
-waiting = """
-<html>
-<style>
-{}
-</style>
+
+waiting = """<html><style>{}</style>
 {}
 <body>
-<div class="column side">
-{}
-</div>
+<div class="column left">{}</div>
 <div class="column middle">
 {}
 </div>
+<div class="column small">G</div>
+</body>
+</html>
 """
-
-
 
 
 optimize_form = """<html>
@@ -119,13 +115,10 @@ optimize_form = """<html>
 </style>
 {}
 <body>
-<div class="column side">
-<div class="rounded">
+<div class="column left">
 {}
 </div>
-</div>
 <div class="column middle">
-<div class="rounded">
 <table border=0>
     <tr><td> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td>
         <td colspan=2>{}</td>
@@ -173,7 +166,7 @@ optimize_form = """<html>
             </form>
 </table>
 </div>
-</div>
+<div class="column small"></div>
 </html>
 
 """
@@ -186,68 +179,29 @@ check_status_form = """<html>
 </style>
 {}
 <br><body>
-<div class="column side">
+<div class="column left">
 {}
 </div>
 <form action="/check_status?use_case={}&next_action={}" method="POST" enctype="multipart/form-data">
 
 <div class="column middle">
-<div class="rounded">
-<table border=0>
-    <tr>
-        <td> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td>
+  <div class="column middle_top">
+  {}
+  </div>
 
-        <td colspan=2>
-            {}
-        </td>
-        <td> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td>
-    </tr>
-  <tr>
-    <td></td>
-    <td>
-        jobArn
-    </td>
-    <td>
-        {}
-        <input type="text" name="jobArn" value="{}"></input>
-        <input type="hidden" name="batch_size" value="4"></input>
-        <input type="hidden" name="n_batches" value="1024"></input>
-    </td>
-    <td></td>
-  </tr>
-  <tr>
-      <td></td>
-    <td>
-        Key Path
-    </td>
-    <td>
-      <input type="text" name="key_path" value="{}"></input>
-    </td>
-    <td></td>
-  </tr>
-  <tr>
-   <td></td>
-    <td>
-        Filename
-    </td>
-    <td>
-        <input type="text" name="filename_id" value="{}"></input>
-    </td>
-    <td></td>
-  </tr>
-    <tr>
-        <td></td>
-        <td></td>
-        <td>
-            <input type="submit" value="Check Status"></input>
-        </td>
-    <td></td>
-    </tr>
-    </table>
-</form>
+  <div class="column middle_middle">
+  {}
+  </div>
+
+  <div class="column middle_bottom">
+  <input type="submit" value="Check Status"></input>
+  </div>
+  </form>
 </div>
-{}
+<div class="column small">
+
 </div>
+
 </body>
 </html>
 """
@@ -262,12 +216,8 @@ enumerate_prompts =  """
 <br>
 <body>
 {}
-<div class="column side small">
-{}
-<br>
-</div>
-<div class="column middle big">
-
+<div class="column small"></div>
+<div class="column middle_big">
 <form action="/enumerate_prompts?use_case={}&deployment={}" method="POST"  enctype="multipart/form-data">
 
 
@@ -300,7 +250,7 @@ enumerate_prompts =  """
     </tr>
     <tr>
         <td></td>
-        <td stype="width:60px"><b>Task System</b> Accompanies the prompt to be written.</td>
+        <td><b>Task System</b> Accompanies the prompt to be written.</td>
         <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
         <td></td>
     </tr>
@@ -375,7 +325,7 @@ enumerate_prompts =  """
     </tr>
 </table>
 </div>
-</form>
+<div class="column small"></div></form>
 """
 header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 <div class="header">
@@ -390,8 +340,8 @@ header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 </div>
 
 <div class="topnav">
+<a href="https://promptimizer-g4ab.onrender.com">Home</a>
 <a href="https://quantecarlo.com">Quante Carlo</a>
-<a href="https://quantecarlo.com">QC</a>
 <a href="/rag">How to prepare RAG</a>
 </div>
 
