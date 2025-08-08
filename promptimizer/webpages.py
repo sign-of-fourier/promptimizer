@@ -101,10 +101,7 @@ waiting = """<html><style>{}</style>
 <body>
 <div class="column left">{}</div>
 <div class="column middle">
-<div class="column middle_top"></div>
-<div class="column middle_middle">
-{}</div>
-<div class="column middle_bottom"></div>
+{}
 </div>
 <div class="column small">G</div>
 </body>
@@ -343,8 +340,8 @@ header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 </div>
 
 <div class="topnav">
+<a href="https://promptimizer-g4ab.onrender.com">Home</a>
 <a href="https://quantecarlo.com">Quante Carlo</a>
-<a href="https://quantecarlo.com">QC</a>
 <a href="/rag">How to prepare RAG</a>
 </div>
 
