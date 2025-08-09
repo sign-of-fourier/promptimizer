@@ -102,8 +102,13 @@ waiting = """<html><style>{}</style>
 <div class="column left">{}</div>
 <div class="column middle">
 {}
+<br>
+<form action="/check_status?use_case={}&next_action={}" method="POST"">
+{}
+<input type="submit" Value="Check Again"></input>
+</form>
 </div>
-<div class="column small">G</div>
+<div class="column small"></div>
 </body>
 </html>
 """
@@ -271,7 +276,7 @@ enumerate_prompts =  """
         <td><b>Evaluation </b>method for label. Should match the prompt output.</td>
         <td><select name="evaluator">
             <option value="accuracy">Accuracy</option>
-            <option valuie="auc">AUC</option>
+            <option value="auc">AUC</option>
             </select>
         </td>
         <td></td>
@@ -317,6 +322,8 @@ enumerate_prompts =  """
         <td><input name="password" type="text"></input>
         <td></td>
     </tr>
+    <input type="hidden" name="batch_size" value="4"></input>
+    <input type="hidden" name="n_batches" value="4096"></input>
     <tr>
         <td></td>
         <td></td>

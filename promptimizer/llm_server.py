@@ -286,6 +286,8 @@ def enumerate_prompts():
         return 'Wrong password ... wah wah'
     prompt_user = request.form['writer_user']
     prompt_system = request.form['writer_system']
+    n_batches = request.form['n_batches']
+    batch_size = request.form['batch_size']
     models = {}
     total_calls = 0
     sidebar = "<table><tr><td colspan=2><b>Models</b></td></tr>\n"
@@ -306,31 +308,40 @@ def enumerate_prompts():
         random_string = 'not applicable'
     else:
         jobArns, key_path, random_string = batchrock(use_case, jsonl, models)
-    
 
-    hidden_variables = hidden.format('batch_size', 4) + hidden.format('n_batches', 4096)+\
-            hidden.format('models', ';'.join([m for m in models.keys() if models[m] >= 100]))+\
+    hidden_variables = hidden.format('models', ';'.join([m for m in models.keys() if models[m] >= 100]))+\
             hidden.format('jobArn',  ";".join(jobArns)) + hidden.format('deployment', deployment)+\
-            hidden.format('filename_id', random_string)+hidden.format('key_path', key_path)
-    for h in ['separator', 'label', 'evaluator', 'task_system']:
+            hidden.format('setup_id', random_string)+hidden.format('key_path', key_path)
+    for h in ['separator', 'label', 'evaluator', 'task_system', 'n_batches', 
+              'batch_size']:
         hidden_variables += hidden.format(h, request.form[h])
-    sidebar += "<tr><td><b>Evaluator</b></td><td>"+request.form['evaluator']+"</td></tr>\n"+\
-            tworows.format('N Batches', '10M') + tworows.format('Batch Size', 4) + "</table>"
 
-    message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes and use the job_ids and key_paths below."
+    sidebar += "<tr><td><b>Evaluator</b></td><td>"+request.form['evaluator']+"</td></tr>\n"+\
+            tworows.format('N Batches', '10M') + tworows.format('Batch Size', batch_size) + "</table>"
+
+    message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes."
     return webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar, use_case, 'optimize', 
-                                             message, hidden_variables)        
+                                             message, "<font color=\"lightslategrey\"><i>Waiting ...</i></font>" + hidden_variables)        
 
 
 
 
 tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
 
+# optimize_form
+# batch_response
+# waiting
+# optimize_Form
+
+
+
+
 @app.route("/check_status", methods=["POST"])
 def check_status():
 
     search_space_message =  "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
     use_case = request.args.get('use_case')
+    next_action = request.args.get('next_action')
     sidebar = "<table>" + tworows.format('Use Case', use_case) + \
             tworows.format('Evaluator', request.form['evaluator']) + '</table>'
     if 'deployment' in request.form.keys():
@@ -338,13 +349,19 @@ def check_status():
     else:
         deployment = ''
     models = request.form['models']
-    
-    parameters = {'batch_size': request.form['batch_size'],
-                  'n_batches': request.form['n_batches']}
-
-
+    hidden_variables = ''
+    print(request.form.keys())
+    for v in ['separator', 'label', 'task_system', 'evaluator', 'models',
+              'batch_size', 'n_batches', 'key_path', 'deployment',
+              'jobArn', 'setup_id', 'filename_ids']:
+        if v in request.form.keys():
+            if request.form[v] != 'not applicable':
+                hidden_variables += hidden.format(v, request.form[v])
+        else:
+            print('Not included in check status', v)
+    print('valid', deployment)
     #if request.form['deployment'] == 'bedrock': # same as next_step=='optimize'
-    if (request.args.get('next_action') == 'iterate') | (deployment=='azure'):
+    if (next_action == 'iterate') | (deployment == 'azure'):
         azure_client = openai.AzureOpenAI(
                 api_key=os.environ['AZURE_OPENAI_KEY'],
                 api_version="2024-10-21",
@@ -353,6 +370,7 @@ def check_status():
 
         batch_id = request.form['jobArn']
         batch_response = azure_client.batches.retrieve(batch_id)
+        print(batch_response.status)
 
         if batch_response.status == 'failed':
 
@@ -361,13 +379,9 @@ def check_status():
 
             return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
         elif batch_response.status == 'completed':
-
-            hidden_variables = ''
-            for v in ['separator', 'label', 'task_system', 'evaluator', 'models']:
-                hidden_variables += hidden.format(v, request.form[v])
-
+            
             #azure_client.files.delete(request.form['filename_id'])
-            if request.args.get('next_action') == 'optimize': # you only follow this path if deployment is azure
+            if next_action == 'optimize': # you only follow this path if deployment is azure
                 raw_prompts = [json.loads(raw) for raw in azure_client.files.content(batch_response.output_file_id).text.strip().split("\n")]
                 prompts = [p['response']['body']['choices'][0]['message']['content'] for p in raw_prompts]
                 #custom_ids_components = jsponse['custom_id'].split('_')
@@ -387,28 +401,20 @@ def check_status():
                         tworows.format('Finalizing Time',batch_response.completed_at-batch_response.finalizing_at)+\
                         tworows.format('Total Time', str(int(runtime/60)) + 'm ' + str(runtime % 60) + 's')+\
                         "</table>"
-
-                return bayes(use_case, batch_response.output_file_id, request.form['key_path'], request.form['setup_id'], 
-                             request.form['separator'], request.form['label'], request.form['task_system'], request.form['models'], 
-                             parameters, request.form['filename_ids'], request.form['evaluator'], stats)
+                print('calling bayes', request.form['label'])
+                return bayes(use_case, batch_response.output_file_id, request.form, stats)
         else:
             azure_client.close()
-
+            
             return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar,
-                                           "<br> &nbsp; " + batch_response.status + "<br>" + "Use your back putton to check again in a little while.")
+                                           "<br> &nbsp; " + batch_response.status + "<br>" + "Use your back putton to check again in a little while.", 
+                                           use_case, next_action, hidden_variables)
 
-    elif request.args.get('next_action') == 'optimize':
+    elif next_action == 'optimize':
 
         jobArns = request.form['jobArn'].split(';')
         bedrock = boto3.client(service_name="bedrock", aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
                                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-
-        key_path = request.form['key_path']
-        filename_id = request.form['filename_id']
-        
-        hidden_variables = ''
-        for v in ['separator', 'label', 'task_system', 'evaluator','models']:
-            hidden_variables += hidden.format(v, request.form[v])
 
         status = [bedrock.get_model_invocation_job(jobIdentifier=j)['status'] for j in jobArns]
         status_print = [m + ' &nbsp; ' + s for s, m in zip(status, models.split(';'))]
@@ -421,25 +427,25 @@ def check_status():
             s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-
             jsonl = []
 
             for j, m in zip([j.split('/')[-1] for j in jobArns], models.split(';')):
-                obj = s3.get_object(Bucket=bucket, Key=request.form['key_path'] + f'/output/{filename_id}/{j}/{m}.jsonl.out')
+                obj = s3.get_object(Bucket=bucket, Key=request.form['key_path'] + '/output/'+request.form['setup_id']+f'/{j}/{m}.jsonl.out')
                 jsonl += obj['Body'].read().decode('utf-8').split("\n")
-
 
             prompts = [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
 
             s3.put_object(Body="|".join(prompts).encode('utf-8'),
-                          Bucket=bucket, Key=request.form['key_path'] + '/output/' + filename_id + '/consolidated.csv')
+                          Bucket=bucket, Key=request.form['key_path'] + '/output/' + request.form['setup_id'] + '/consolidated.csv')
             s3.close()
             hidden_variables += "\n".join([hidden.format('job_id-{}'.format(i), j.split('/')[-1]) for i, j in enumerate(jobArns)])
             message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
-            return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, message, use_case, hidden_variables, filename_id, key_path)
+            return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, message, use_case, 
+                                                 hidden_variables, '', request.form['key_path'])
         else:
             return webpages.waiting.format(css.style, webpages.header_and_nav,
-                                           "<br>\n".join(status_print)+ "\n<br>" , "Use your back button to check again in a little while.")
+                                           "<br>\n".join(status_print)+ "\n<br>" , "Use your back button to check again in a little while.",
+                                           use_case, next_action, hidden_variables)
 
     else:
         return 'no next_action'
@@ -479,52 +485,49 @@ def get_prompts(prompt_key, job_ids, models):
 @app.route("/optimize", methods=['POST'])
 def pre_optimize():
     
-     filename_id = request.form['filename_id']
-     key_path = request.form['key_path']
-     use_case = request.args.get('use_case', 'lost_and_found') 
-     separator = request.form['separator']
-     label = request.form['label']
-     task_system = request.form['task_system']
-     evaluator = request.form['evaluator']
-     models = request.form['models']
 
-     subdirectories = [filename_id + '/' + request.form[k] for k in request.form.keys() if k[:6] == 'job_id']
-
+     subdirectories = [request.form['filename_id'] + '/' + request.form[k] for k in request.form.keys() if k[:6] == 'job_id']
 
      s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-
      if not request.files['data'].filename:
-
          return "No training File"
      else:
-
          s3.put_object(Body=request.files['data'].stream.read(),
-                       Bucket=bucket, Key=key_path + '/training_data/' + filename_id)
+                       Bucket=bucket, Key=request.form['key_path'] + '/training_data/' + request.form['setup_id'])
 
-     obj = s3.get_object(Bucket=bucket, Key=key_path+'/output/'+filename_id + '/consolidated.csv')
+     print(request.form.keys())
+
+     obj = s3.get_object(Bucket=bucket, Key=request.form['key_path']+'/output/'+request.form['setup_id'] + '/consolidated.csv')
      prompts = obj['Body'].read().decode('utf-8').split("|")
-
 
      if len(prompts) < 1:
          return "Sub directory problem"
 
      E = get_embeddings(prompts)
      print('done with embeddings')
-     s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + filename_id + '.mbd')
+     print(request.form.keys())
+     print(request.form['filename_id'])
+
+     X = {'setup_id': request.form['filename_id']}
+     for x in request.form.keys():
+         X[x] = request.form[x]
+
+
+     s3.put_object(Body="\n".join(E), Bucket=bucket, Key=request.form['key_path'] + '/embeddings/' + request.form['setup_id'] + '.mbd')
      s3.close()
-     return optimize(use_case, range(4), task_system, separator, key_path, label, evaluator, filename_id, models)
+
+     return optimize(request.args.get('use_case'), range(4), X)
 
 
-def optimize(use_case, prompt_ids, task_system, separator, key_path, label, evaluator, 
-             setup_id, models, filename_ids = '', performance_report = ()):
+def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-    print('reading ', bucket, key_path, setup_id)
-    df = pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id)
+    print('reading ', bucket, opt_parameters['key_path'], opt_parameters['setup_id'])
+    df = pd.read_csv('s3://' + bucket + '/' + opt_parameters['key_path'] + '/training_data/' + opt_parameters['setup_id'])
 
     if ('input' in df.columns) & ('output' in df.columns):
         preview_text = []
@@ -539,7 +542,7 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
         return "Your file must contain columns with the names 'input' and 'output'."
 
     print('writing {} new files.'.format(len(prompt_ids)))
-    obj = s3.get_object(Bucket=bucket, Key=key_path+'/output/'+setup_id + '/consolidated.csv')
+    obj = s3.get_object(Bucket=bucket, Key=opt_parameters['key_path']+'/output/'+ opt_parameters['setup_id'] + '/consolidated.csv')
     prompts = obj['Body'].read().decode('utf-8').split("|")
 
     evaluation_jsonl = []
@@ -553,8 +556,8 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
                          'model': 'gpt-4o-mini-batch',
                         'temperature': .03,
                          'messages': [
-                             {'role': 'system', 'content': task_system},
-                             {'role': 'user', 'content': prompt + "\n" + separator+"\n" + text}
+                             {'role': 'system', 'content': opt_parameters['task_system']},
+                             {'role': 'user', 'content': prompt + "\n" + opt_parameters['separator']+"\n" + text}
                             ]
                          }
                      }
@@ -570,16 +573,20 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
 
     batch_response_id = azure_batch(output_filename)
     n_training_examples = df.shape[0]
-    sidebar = f"<table>" + tworows.format("Evaluator",evaluator)+\
+    sidebar = f"<table>" + tworows.format("Evaluator",opt_parameters['evaluator'])+\
             tworows.format("Use Case", use_case)+\
             tworows.format("N Rows", n_training_examples)+ "</table>"
 
+    hidden_variables = hidden.format('filename_id', random_string) +\
+            hidden.format('jobArn', batch_response_id) 
 
-    hidden_variables = hidden.format('separator', separator) + hidden.format('setup_id', setup_id)+\
-            hidden.format('label', label) + hidden.format('task_system', task_system) + hidden.format('filename_ids', filename_ids)+\
-            hidden.format('evaluator', evaluator) + hidden.format('models', models)+\
-            hidden.format('batch_size', 4) + hidden.format('n_batches', 4096)+\
-            hidden.format('jobArn', batch_response_id)+hidden.format('key_path', key_path)+hidden.format('filename_id', random_string)
+    for k in ['setup_id', 'models', 'key_path', 'setup_id', 'evaluator', 'label',
+              'n_batches', 'batch_size', 'separator', 'task_system',
+              'filename_ids']:
+        if k in opt_parameters.keys():
+            hidden_variables += hidden.format(k, opt_parameters[k])
+        else:
+            print(k, 'not defined in optimize')
 
     if len(performance_report) > 0:
         history, best_prompt, stats = performance_report
@@ -589,13 +596,11 @@ def optimize(use_case, prompt_ids, task_system, separator, key_path, label, eval
         best_prompt = ''
         stats = ''
 
-
     return webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar + stats, use_case, 
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
     
 
 def azure_batch(output_filename):
-
 
     azure_client = openai.AzureOpenAI(
             api_key=os.environ['AZURE_OPENAI_KEY'],
@@ -643,8 +648,7 @@ def get_embeddings(input_text):
 
 
 
-def bayes(use_case, filename_id, key_path, setup_id, separator, 
-          label, task_system, models, parameters, filename_ids, evaluator, stats):
+def bayes(use_case, filename_id, par, stats):
 
     azure_client = openai.AzureOpenAI(
             api_key=os.environ['AZURE_OPENAI_KEY'],
@@ -652,42 +656,63 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
             azure_endpoint = os.environ["AZURE_ENDPOINT"]
             )
 
-    if len(filename_ids) < 1:
-        filename_ids = filename_id
+    X = {}
+    for x in par.keys():
+        X[x] = par[x]
+
+    if 'filename_ids' in par.keys():
+        X['filename_ids'] = X['filename_ids'] + ';' + filename_id
     else:
-        filename_ids = filename_ids + ';' + filename_id
+        X['filename_ids'] = filename_id
 
     predictions = []
     prompt_ids = []
     record_ids = []
 
-
-    for i, filename in enumerate(filename_ids.split(';')):
+    for i, filename in enumerate(X['filename_ids'].split(';')):
+        print(filename)
         for raw in azure_client.files.content(filename).text.strip().split("\n"):
             if True:
                 jsponse = json.loads(raw)
                 custom_ids_components = jsponse['custom_id'].split('_')
                 match = re.search(r'(\{.*\})', jsponse['response']['body']['choices'][0]['message']['content'], re.DOTALL)
                 if match:
-                    content = json.loads(match.group(0))
-                    if request.form['label'] in content.keys():
-                        prediction = content[request.form['label']]
-                        prompt_ids.append(custom_ids_components[1])
-                        record_ids.append(custom_ids_components[2])
-                        predictions.append(prediction)
+                    try:
+                        content = json.loads(match.group(0))
+                        if request.form['label'] in content.keys():
+                            prediction = content[request.form['label']]
+                            #if ~np.isnan(prediction):
+                            prompt_ids.append(custom_ids_components[1])
+                            record_ids.append(custom_ids_components[2])
+                            predictions.append(prediction)
+
+                    except Exception as e:
+                        print(request.form['label'])
+                        print(custom_ids_components)
+                        print("failed response will be ignored.")
+                        print(e)
+                        print(content)
 
 
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
                                    'record_id': record_ids,
                                    'prediction': predictions})
-
-    training_df = json.loads(pd.read_csv('s3://' + bucket + '/' + key_path + '/training_data/' + setup_id).to_json())
+    print('get training data')
+    #training_df = json.loads(pd.read_csv('s3://' + bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id']).to_json())
+    training_df = pd.read_csv('s3://' + bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
     truth = training_df['output']
 
+    print(predictions_df['prediction'].unique())
+    print('-_-_-_-_-_-_-')
+    print(predictions_df.head())
+    print('---')
+    print(training_df.head())
+    print('----------')
 
-    if evaluator.lower() == 'accuracy':
+    print(par['evaluator'])
+    if par['evaluator'].lower() == 'accuracy':
         scores_by_prompt, performance_report = accuracy(predictions_df, truth)
-    elif evaluator.lower() == 'auc':
+    elif par['evaluator'].lower() == 'auc':
         scores_by_prompt, performance_report = auc(predictions_df, truth)
     else:
         print("ERROR NO Evaluator")
@@ -696,10 +721,10 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-    obj = s3.get_object(Bucket=bucket, Key=key_path+'/output/'+setup_id + '/consolidated.csv')
+    obj = s3.get_object(Bucket=bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
     prompts = obj['Body'].read().decode('utf-8').split("|")
 
-    obj = s3.get_object(Bucket=bucket, Key=key_path + '/embeddings/' + setup_id + '.mbd')
+    obj = s3.get_object(Bucket=bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
     #embeddings_raw = obj['Body'].read().decode('utf-8').split("\n")
     embeddings_raw = [[float(x) for x in e.split(',')] for e in obj['Body'].read().decode('utf-8').split("\n")]
     scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
@@ -715,7 +740,7 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
 
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
 
-
+    print(scores_by_prompt)
     best = -1000
     s = [-1]
     for s in scores_by_prompt.keys():
@@ -733,11 +758,9 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     gpr.fit(scored_embeddings, transformed_scores)
     mu, sigma = gpr.predict(unscored_embeddings, return_cov=True)
 
-#    print(mu)
-    print(parameters)
-    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, int(parameters['n_batches']), int(parameters['batch_size']))
+    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, int(par['n_batches']), int(par['batch_size']))
     try:
-        best_idx = bbo.get_best_batch(batch_mu, batch_sigma, parameters['batch_size'])
+        best_idx = bbo.get_best_batch(batch_mu, batch_sigma, par['batch_size'])
     except Exception as e:
         print(e)
         print('might have the wrong evaluation function', evaluator)
@@ -745,11 +768,8 @@ def bayes(use_case, filename_id, key_path, setup_id, separator,
     best_prompt = " &nbsp; <i>Best Prompt So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(prompts[int(best_prompt_id)], max(Q))
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
-
-
-    return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], task_system,
-                    separator, key_path, label, evaluator, setup_id,models,
-                    filename_ids, (performance_report, best_prompt, stats))
+    return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], X,
+                    (performance_report, best_prompt, stats))
 
 
 from sklearn.metrics import roc_auc_score
@@ -773,14 +793,15 @@ def auc(predictions_df, truth):
     performance_report = ""
     prompt_auc = {}
     predict_proba = []
-    target =[]
-
+    target = []
+    print(predictions_df['prompt_id'].unique())
     for prompt_id in predictions_df['prompt_id'].unique():
         print(prompt_id)
         df = predictions_df[predictions_df['prompt_id'] == prompt_id]
-        prompt_auc[prompt_id] = roc_auc_score([1 if truth[str(x)] == True else 0 for x in df['record_id']], 
+        prompt_auc[prompt_id] = roc_auc_score([1 if truth[int(x)] == True else 0 for x in df['record_id']], 
                                               [probability(x.lower()) for x in df['prediction']])
-
+    print(prompt_auc)
+    print(':::::::::::')
     for k in prompt_auc.keys():
         performance_report += "{} {} <br> \n".format(k, prompt_auc[k])
     return prompt_auc, performance_report

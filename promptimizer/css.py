@@ -4,6 +4,7 @@ style="""* {
 
 body {
   margin: 0;
+  background-color: aliceblue;
 }
 
 /* Style the header */
@@ -50,13 +51,14 @@ body {
 .column.middle {
   border: 1px solid black;
   width: 70%;
-  background-color: cornslik;
+  background-color: cornsilk;
   height: 500px;
   overflow: auto;
-  border-radius: 30px;
+  border-radius: 20px;
 }
 .column.small {
   width: 5%;
+  bacground-color: aliceblue;
 }
 
 .column.middle_top {
