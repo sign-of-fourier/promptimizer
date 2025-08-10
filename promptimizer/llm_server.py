@@ -74,22 +74,34 @@ def call_nova(system, user, config):
 
 
 
-batchrock_model_catalog = {'nova-micro': 'us.amazon.nova-micro-v1:0',
-                           'nova-pro': 'us.amazon.nova-micro-v1:0',
-                           'llama-3.1': 'us.amazon.nova-micro-v1:0',
-                           'nova-lite': 'us.amazon.nova-micro-v1:0',
-                           'nova-micro': 'us.amazon.nova-micro-v1:0',
-                           'nova-pro': 'us.amazon.nova-micro-v1:0',
-                           'claude-3.5-haiku': 'us.amazon.nova-micro-v1:0',
-                           'claude-3-haiku': 'us.amazon.nova-micro-v1:0',
-                           'claude-3.5-sonnet': 'us.amazon.nova-micro-v1:0',
-                           'claude-3.5-sonnet-v2': 'us.amazon.nova-micro-v1:0',
-                           'claude-3-opus': 'us.amazon.nova-micro-v1:0',
-                           'claude-3-sonnet': 'us.amazon.nova-micro-v1:0',
-                           'llama-3.1-405b-instruct': 'us.amazon.nova-micro-v1:0',
-                           'llama-3.1-70b-instruct': 'us.amazon.nova-micro-v1:0',
-                           'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0'
+model_catalog = {'Nova Micro': 'us.amazon.nova-micro-v1:0',
+                 'Nova Pro': 'us.amazon.nova-micro-v1:0',
+                 'Llama 3.1': 'us.amazon.nova-micro-v1:0',
+                 'Nova-Lite': 'us.amazon.nova-micro-v1:0',
+                 'Nova-Micro': 'us.amazon.nova-micro-v1:0',
+                 'Nova Pro': 'us.amazon.nova-micro-v1:0',
+                 'Mark GPT': 'us.amazon.nova-micro-v1:0',
+                 'Claude-3.5 Haiku': 'us.amazon.nova-micro-v1:0',
+                 'Claude-3 Haiku': 'us.amazon.nova-micro-v1:0',
+                 'Claude-3.5 Sonnet': 'us.amazon.nova-micro-v1:0',
+                 'Claude-3.5 Sonnet-v2': 'us.amazon.nova-micro-v1:0',
+                 'Claude 3 Opus': 'us.amazon.nova-micro-v1:0',
+                 'claude-3-sonnet': 'us.amazon.nova-micro-v1:0',
+                 'llama-3.1-405b Instruct': 'us.amazon.nova-micro-v1:0',
+                 'llama-3.1-70b Instruct': 'us.amazon.nova-micro-v1:0',
+                 'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0',
+                 'Chat GPT 4.1 Mini': 'gpt-4.1-mini-batch',
+                 'Chat GPT 4o Mini': 'gpt-4o-mini-batch', 
+                 'Chat GPT 4.1': 'gpt-4.1-batch'
 }
+
+azure_models = {'Chat GPT 4.1 Mini': 'openai/deployments/gpt-4.1-mini-batch/chat/completions?api-version=2025-01-01-preview',
+                'Chat GPT 4o Mini': '', 
+                'Chat GPT 4.1 Nano': 'openai/deployments/gpt-4.1-nano/chat/completions?api-version=2025-01-01-preview',
+                'Chat GPT 4.1': 'openai/deployments/gpt-4.1-batch/chat/completions?api-version=2025-01-01-preview'
+                }
+
+
 
 def kick_off(input_path, output_path, job_id, model):
     boto3_bedrock = boto3.client(service_name="bedrock", region_name='us-east-2', 
@@ -116,7 +128,7 @@ def kick_off(input_path, output_path, job_id, model):
     try:
         response=boto3_bedrock.create_model_invocation_job(
             roleArn = 'arn:aws:iam::344400919253:role/bedrock_batch',
-            modelId = batchrock_model_catalog[model],
+            modelId = model_catalog[model],
         
             jobName=job_id + '-' + model,
             inputDataConfig=inputDataConfig,
@@ -142,9 +154,7 @@ def prompt_preview():
     options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 50, 100, 150, 200]])
     model_select = "        <td>\n                <select name=\"model-{}\">\n" + options + "\n            </select>\n        </td>\n"
     model_section = ''
-    for i, model_name in enumerate(['Nova Lite', 'Nova Micro', 'Nova Pro', 'Claude 3.5 Haiku', 'Claude-3.5-Sonnet', 'Claude 3.5 Sonnet V2',
-                                    'Claude 3 Haiku', 'Claude 3 Opus', 'Claude 3 Sonnet', 'Llama 3.1 405B Instruct', 'Llama 3.1 70B Instruct',
-                                    'Llama 3.1 8B Instruct', 'Chat GPT 4o','Chat GPT mini', 'Chat GPT AGI']):
+    for i, model_name in enumerate(model_catalog.keys()):
         if i % 3:
             K = i%3
             row_start = ""#"            </td>\n"
@@ -155,7 +165,7 @@ def prompt_preview():
         else:
             row_start = "        <tr>\n"
             row_end = "            <td></td>\n"
-        model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(re.sub(' ', '-', model_name.lower())) + row_end + "\n"
+        model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(model_name) + row_end + "\n"
 
     return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, use_case, deployment, 
                                              prompt_library.writer_system, prompt_library.writer_user, 
@@ -167,18 +177,12 @@ hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
 
 bucket = 'sagemaker-us-east-2-344400919253'
 
-max_records = 105
 
 
 
-def batchrock(use_case, jsonl, models):
+def batchrock(use_case, jsonl, models, random_string, key_path):
 
-    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-
-    timestamp = datetime.datetime.today()
-    key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
     filenames = []
-
     jobArns = []
     try:
         client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
@@ -189,7 +193,7 @@ def batchrock(use_case, jsonl, models):
 
 
     for model_name in models.keys():
-        if (models[model_name] >=100) & (model_name in batchrock_model_catalog.keys()):
+        if (models[model_name] >=100) & (model_name in model_catalog.keys()):
             filename = f'{random_string}/{model_name}.jsonl'
             filenames.append(filename)
             client.put_object(Body="\n".join(jsonl[:models[model_name]]),
@@ -201,15 +205,17 @@ def batchrock(use_case, jsonl, models):
             with open('/tmp/' + random_string + '-' + model_name + '.jsonl', 'w') as f:
                 f.write("\n".join(jsonl))
             client.close()
-        elif (models[model_name] >= 100):
-            print (f'unkoiwn model: {model_name}')
-            return 'ERROR', 'unknown model', model_name
+        elif (models[model_name] > 0):
+            if model_name not in azure_models.keys():
+                print (f'ERROR unkown model: {model_name}.', models[model_name])
+            else:
+                print('Azure Deployment', model_name)
 
-    return jobArns, key_path, random_string
+    return jobArns
 
 
 
-def make_jsonl(prompt_system, prompt_user, deployment, demo_path = None):
+def make_jsonl(prompt_system, prompt_user, model, temp, n_records, demo_path = None):
 
     if demo_path:
         demo_df = pd.read_csv(demo_path)
@@ -220,11 +226,10 @@ def make_jsonl(prompt_system, prompt_user, deployment, demo_path = None):
         demonstrations = False
 
 
-
     jsonl = []
-    for i in range(max_records):
+    for i in range(n_records):
         if demonstrations:
-            if deployment == 'azure':
+            if model != 'bedrock':
                 samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
                         [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
             else:
@@ -237,13 +242,13 @@ def make_jsonl(prompt_system, prompt_user, deployment, demo_path = None):
         else:
             samples = []
 
-        if deployment == 'azure':
-            query = {'custom_id': 'JOB_1_RECORD_{}'.format(i),
+        if model != 'bedrock':
+            query = {'custom_id': 'JOB_{}_{}'.format(model, i),
                          'method': 'POST',
                          'url': '/chat/completions',
                          'body': {
-                             'model': 'gpt-4o-mini-batch',
-                             'temperature': .7,
+                             'model': model,
+                             'temperature': temp,
                              'messages': [
                                  {'role': 'system', 'content': prompt_system},
                                  {'role': 'user', 'content': [{"type": "text", "text": prompt_user}] + samples}
@@ -252,12 +257,12 @@ def make_jsonl(prompt_system, prompt_user, deployment, demo_path = None):
                         }
 
         else:
-            query = {"recordId":  "JOB_1_RECORD_{}".format(i),
+            query = {"recordId":  "JOB_bedrock_RECORD_{}".format(i),
                          "modelInput": {"schemaVersion": "messages-v1",
                                         "system": [{"text": prompt_system}],
                                         "messages": [{"role": "user",
                                                       "content": [{"text": "{}".format(prompt_user)} ] }] + samples ,
-                                        "inferenceConfig":{"maxTokens": 1024, "topP": .9,"topK": 90, "temperature": .9 }
+                                        "inferenceConfig":{"maxTokens": 2048, "topP": .9,"topK": 90, "temperature": temp }
                                         }
                         }
         jsonl.append(json.dumps(query))
@@ -278,7 +283,7 @@ def enumerate_prompts():
         demo_path = '/tmp/demonstrations.csv'
     else:
         demo_path = ''
-    deployment = request.args.get('deployment', '')
+    #deployment = request.args.get('deployment', '')
     n_rows = request.args.get('rows', '')
     use_case = request.args.get('use_case', '')
     password = request.form['password']
@@ -288,29 +293,63 @@ def enumerate_prompts():
     prompt_system = request.form['writer_system']
     n_batches = request.form['n_batches']
     batch_size = request.form['batch_size']
-    models = {}
+    
+    all_models = {}
+    azure_models_enumerated = {}
+    bedrock_models_enumerated = {}
     total_calls = 0
     sidebar = "<table><tr><td colspan=2><b>Models</b></td></tr>\n"
 
+    azure_jsonls = []
+    bedrock = 0
+    max_records = 0
     for k in request.form.keys():
         if 'model' == k[:5]:
-            models[k[6:]] = int(request.form[k])
-            total_calls += int(request.form[k])
-            if int(request.form[k]) > 0:
-                sidebar += "<tr><td>" + k[6:] + "</td><td>" + request.form[k] + "</td></tr>\n"
-    jsonl = make_jsonl(prompt_system, prompt_user, deployment, demo_path)
+            n = int(request.form[k])
+            if n > 0:
+                if k[6:] in azure_models.keys():
+                    azure_jsonls.append((make_jsonl(prompt_system, prompt_user, 
+                                                    model_catalog[k[6:]], .9, n, demo_path),
+                                        azure_models[k[6:]]))
+                    azure_models_enumerated[k[6:]] = n
 
-    if deployment == 'azure':
-        with open('/tmp/jobs.jsonl', 'w') as f:
-            f.write("\n".join(jsonl))
-        jobArns = [azure_batch('/tmp/jobs.jsonl')]
-        key_path = 'promptimizer/AZURE'
-        random_string = 'not applicable'
+                else:
+                    if int(request.form[k]) > bedrock:
+                        bedrock = n
+                    bedrock_models_enumerated[k[6:]] = n
+
+                all_models[k[6:]] = n
+                total_calls += n
+                sidebar += tworows.format(k[:6], n)
+
+
+    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+    timestamp = datetime.datetime.today()
+    key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
+
+
+    if bedrock:
+        bedrock_jsonl = make_jsonl(prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
+        jobArns = batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
     else:
-        jobArns, key_path, random_string = batchrock(use_case, jsonl, models)
+        print('no bedrock')
+        jobArns = []
+    
 
-    hidden_variables = hidden.format('models', ';'.join([m for m in models.keys() if models[m] >= 100]))+\
-            hidden.format('jobArn',  ";".join(jobArns)) + hidden.format('deployment', deployment)+\
+    if len(azure_jsonls) > 0:
+        print('azure batch')
+        job_ids, azure_file_ids = azure_batch(azure_jsonls)
+    else:
+        job_ids = []
+        azure_file_ids = []
+    
+    print(job_ids)
+
+    hidden_variables = hidden.format('azure_models', ';'.join([m for m in azure_models_enumerated.keys() if azure_models_enumerated[m] >= 0]))+\
+            hidden.format('bedrock_models', ';'.join([m for m in bedrock_models_enumerated.keys() if bedrock_models_enumerated[m] >= 0]))+\
+            hidden.format('jobArn',  ";".join(jobArns)) + \
+            hidden.format('azure_job_id', ';'.join(job_ids))+\
+            hidden.format('azure_file_id', ';'.join(azure_file_ids))+\
             hidden.format('setup_id', random_string)+hidden.format('key_path', key_path)
     for h in ['separator', 'label', 'evaluator', 'task_system', 'n_batches', 
               'batch_size']:
@@ -328,11 +367,12 @@ def enumerate_prompts():
 
 tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
 
+threerows = "<tr><td><b>{}</b></td><td>{}</td><td>{}</td></tr>\n"
+
 # optimize_form
 # batch_response
 # waiting
 # optimize_Form
-
 
 
 
@@ -348,53 +388,60 @@ def check_status():
         deployment = request.form['deployment']
     else:
         deployment = ''
-    models = request.form['models']
+    #models = request.form['models']
     hidden_variables = ''
     print(request.form.keys())
-    for v in ['separator', 'label', 'task_system', 'evaluator', 'models',
+    for v in ['separator', 'label', 'task_system', 'evaluator', 'bedrock_models',
+              'azure_models',
               'batch_size', 'n_batches', 'key_path', 'deployment',
-              'jobArn', 'setup_id', 'filename_ids']:
+              'jobArn', 'setup_id', 'filename_ids', 'azure_file_id', 
+              'azure_job_id']:
         if v in request.form.keys():
             if request.form[v] != 'not applicable':
                 hidden_variables += hidden.format(v, request.form[v])
         else:
             print('Not included in check status', v)
     print('valid', deployment)
-    #if request.form['deployment'] == 'bedrock': # same as next_step=='optimize'
-    if (next_action == 'iterate') | (deployment == 'azure'):
+    azure_prompts = []
+    bedrock_prompts = []
+
+    if request.form['azure_job_id'] != '':
         azure_client = openai.AzureOpenAI(
                 api_key=os.environ['AZURE_OPENAI_KEY'],
                 api_version="2024-10-21",
                 azure_endpoint = os.environ["AZURE_ENDPOINT"]
                 )
 
-        batch_id = request.form['jobArn']
-        batch_response = azure_client.batches.retrieve(batch_id)
-        print(batch_response.status)
+        failed = 0
+        completed = 0
+        batch_ids = {}
+        output_file_ids = []
+        for batch_id in request.form['azure_job_id'].split(';'):
+            batch_response = azure_client.batches.retrieve(batch_id)
+            batch_ids[batch_id] = batch_response.status
+            if batch_response.status == 'failed':
+                failed += 1
+                azure_client.close()
+                return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
 
-        if batch_response.status == 'failed':
-
-            #azure_client.files.delete(request.form['filename_id'])
-            azure_client.close()
-
-            return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
-        elif batch_response.status == 'completed':
+            elif batch_response.status == 'completed':
+                completed += 1
+                output_file_ids.append(batch_response.output_file_id)
+        print('completed', completed, len(request.form['azure_job_id'].split(';')))
+        if completed == len(request.form['azure_job_id'].split(';')):
             
             #azure_client.files.delete(request.form['filename_id'])
-            if next_action == 'optimize': # you only follow this path if deployment is azure
-                raw_prompts = [json.loads(raw) for raw in azure_client.files.content(batch_response.output_file_id).text.strip().split("\n")]
-                prompts = [p['response']['body']['choices'][0]['message']['content'] for p in raw_prompts]
-                #custom_ids_components = jsponse['custom_id'].split('_')
-                s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                                  aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-                azure_client.close()
-                s3.put_object(Body="|".join(prompts).encode('utf-8'),
-                              Bucket=bucket, Key=request.form['key_path'] + '/output/' + batch_response.output_file_id + '/consolidated.csv')
-                s3.close()
-                return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, search_space_message, use_case, 
-                                                     hidden_variables, batch_response.output_file_id, request.form['key_path'])
-            else:
+            if next_action == 'optimize': 
 
+                for output_file_id in output_file_ids:
+                    print(output_file_id)
+                    raw_prompts = [json.loads(raw) for raw in azure_client.files.content(output_file_id).text.strip().split("\n")]
+                    azure_prompts += [p['response']['body']['choices'][0]['message']['content'] for p in raw_prompts]
+                #custom_ids_components = jsponse['custom_id'].split('_')
+                azure_client.close()
+                azure_finished = 1
+            else:
+                azure_client.close()
                 runtime = batch_response.completed_at-batch_response.created_at
                 stats = '<table>' + tworows.format('Validation Time', batch_response.in_progress_at-batch_response.created_at)+\
                         tworows.format('In Progress Time', batch_response.finalizing_at-batch_response.in_progress_at)+\
@@ -404,51 +451,69 @@ def check_status():
                 print('calling bayes', request.form['label'])
                 return bayes(use_case, batch_response.output_file_id, request.form, stats)
         else:
+            azure_finished = 0
             azure_client.close()
-            
-            return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar,
-                                           "<br> &nbsp; " + batch_response.status + "<br>" + "Use your back putton to check again in a little while.", 
-                                           use_case, next_action, hidden_variables)
+            if 'azure_models' in request.form.keys():
+                azure_status = ''.join([threerows.format(m, batch_ids[k], k) for m, k in zip(request.form['azure_models'].split(';'), batch_ids.keys())])
+            else:
+                azure_status = tworows.format('Jimmie', batch_response.status)
+    else:
+        azure_finished = 1
+        azure_status = ''
 
-    elif next_action == 'optimize':
+    print('finished azure')
+    if request.form['jobArn'] != '':
 
         jobArns = request.form['jobArn'].split(';')
         bedrock = boto3.client(service_name="bedrock", aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
                                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
         status = [bedrock.get_model_invocation_job(jobIdentifier=j)['status'] for j in jobArns]
-        status_print = [m + ' &nbsp; ' + s for s, m in zip(status, models.split(';'))]
+        bedrock_status = ''.join([threerows.format(m, s, j) for s, m, j in zip(status, request.form['bedrock_models'].split(';'), jobArns)])
 
         bedrock.close() 
         finished = sum([1 if x == 'Completed' else 0 for x in status]) == len(status)
 
         if finished:
         #    prompts = []#get_prompts(request.form['key_path']+'/output/' + filename_id, [j.split('/')[-1] for j in jobArns], models.split(';'))
-            s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                              aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-
+            bedrock_finished = 1
             jsonl = []
+            
+            get_s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                                  aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-            for j, m in zip([j.split('/')[-1] for j in jobArns], models.split(';')):
-                obj = s3.get_object(Bucket=bucket, Key=request.form['key_path'] + '/output/'+request.form['setup_id']+f'/{j}/{m}.jsonl.out')
+            for j, m in zip([j.split('/')[-1] for j in jobArns], request.form['bedrock_models'].split(';')):
+                obj = get_s3.get_object(Bucket=bucket, Key=request.form['key_path'] + '/output/'+request.form['setup_id']+f'/{j}/{m}.jsonl.out')
                 jsonl += obj['Body'].read().decode('utf-8').split("\n")
+            get_s3.close()
+            bedrock_prompts = [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
 
-            prompts = [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
-
-            s3.put_object(Body="|".join(prompts).encode('utf-8'),
-                          Bucket=bucket, Key=request.form['key_path'] + '/output/' + request.form['setup_id'] + '/consolidated.csv')
-            s3.close()
-            hidden_variables += "\n".join([hidden.format('job_id-{}'.format(i), j.split('/')[-1]) for i, j in enumerate(jobArns)])
-            message = "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
-            return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, message, use_case, 
-                                                 hidden_variables, '', request.form['key_path'])
         else:
-            return webpages.waiting.format(css.style, webpages.header_and_nav,
-                                           "<br>\n".join(status_print)+ "\n<br>" , "Use your back button to check again in a little while.",
-                                           use_case, next_action, hidden_variables)
-
+            bedrock_finished = 0
     else:
-        return 'no next_action'
+        bedrock_status = ''
+        bedrock_finished = 1
+
+
+    print(azure_finished,bedrock_finished, azure_finished & bedrock_finished)
+
+    if azure_finished & bedrock_finished:
+    #status_print = [m + ' &nbsp; ' + s for s, m in zip(status, models.split(';'))]
+
+        s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+        s3.put_object(Body="|".join(azure_prompts + bedrock_prompts).encode('utf-8'),
+                      Bucket=bucket, Key=request.form['key_path'] + '/output/' + request.form['setup_id'] + '/consolidated.csv')
+        s3.close()
+
+
+        return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, search_space_message, use_case,
+                                             hidden_variables, batch_response.output_file_id, request.form['key_path'])
+    else:
+
+        return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar,
+                                       f'<table> {azure_status} {bedrock_status}</table>',
+                                       use_case, next_action, hidden_variables)
 
 
 
@@ -563,24 +628,23 @@ def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
                      }
             evaluation_jsonl.append(json.dumps(query))
     
-    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+    #random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+    #timestamp = datetime.datetime.today()
 
-    timestamp = datetime.datetime.today()
-    output_filename = f'/tmp/{random_string}.jsonl'
 
-    with open(output_filename, 'w') as f:
-        f.write("\n".join(evaluation_jsonl))
+    batch_response_id, azure_file_id = azure_batch([(evaluation_jsonl, 'waste')])
+    azure_file_ids = opt_parameters['azure_file_id'] + ';' + azure_file_id[0]
 
-    batch_response_id = azure_batch(output_filename)
     n_training_examples = df.shape[0]
     sidebar = f"<table>" + tworows.format("Evaluator",opt_parameters['evaluator'])+\
             tworows.format("Use Case", use_case)+\
             tworows.format("N Rows", n_training_examples)+ "</table>"
 
-    hidden_variables = hidden.format('filename_id', random_string) +\
-            hidden.format('jobArn', batch_response_id) 
+    hidden_variables = hidden.format('azure_job_id', batch_response_id[0])+\
+            hidden.format('azure_file_id', azure_file_ids)+\
+            hidden.format('jobArn', '')
 
-    for k in ['setup_id', 'models', 'key_path', 'setup_id', 'evaluator', 'label',
+    for k in ['setup_id', 'key_path', 'setup_id', 'evaluator', 'label',
               'n_batches', 'batch_size', 'separator', 'task_system',
               'filename_ids']:
         if k in opt_parameters.keys():
@@ -600,27 +664,40 @@ def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
     
 
-def azure_batch(output_filename):
+def azure_batch(jsonls):
 
-    azure_client = openai.AzureOpenAI(
-            api_key=os.environ['AZURE_OPENAI_KEY'],
-            api_version="2024-10-21",
-            azure_endpoint = os.environ["AZURE_ENDPOINT"]
-            )
 
-    file = azure_client.files.create(
-            file=open(output_filename, "rb"),
-            purpose="batch"
-            )
+    job_ids = []
+    file_ids = []
+    for i, jsonl in enumerate(jsonls):
+        filename = '/tmp/job_{}.jsonl'.format(i)
+        with open(filename, 'w') as f:
+            f.write("\n".join(jsonl[0]))
+        #jobArns.append(azure_batch('/tmp/jobs.jsonl')]
+        print(jsonl[1])
+        azure_client = openai.AzureOpenAI(
+                api_key=os.environ['AZURE_OPENAI_KEY'],
+                api_version="2024-10-21",
+                azure_endpoint = os.environ["AZURE_ENDPOINT"]
+                )
 
-    batch_response = azure_client.batches.create(
-        input_file_id=file.id,
-        endpoint="/chat/completions",
-        completion_window="24h",
-    )
-    azure_client.close()
+        file = azure_client.files.create(
+                file=open(filename, "rb"),
+                purpose="batch"
+                )
 
-    return batch_response.id
+        batch_response = azure_client.batches.create(
+                input_file_id=file.id,
+                endpoint="/chat/completions",
+                completion_window="24h",
+                )
+        
+        print(batch_response.id)
+        job_ids.append(batch_response.id)
+        file_ids.append(file.id)
+        azure_client.close()
+
+    return job_ids,file_ids
 
 
 def get_embeddings(input_text):
@@ -820,7 +897,7 @@ def accuracy(predictions_df, truth):
         prompt_accuracy[p] = 0
 
     for prompt_id, record_id, prediction in zip(predictions_df['prompt_id'], predictions_df['record_id'], predictions_df['prediction']):
-        if prediction.lower() == truth[str(record_id)]:
+        if prediction.lower() == truth[int(record_id)]:
             prompt_accuracy[prompt_id] += 1
     #    else:
     #        print(prediction.lower(), ' : ', record_id, ' : ', truth[str(record_id)])
