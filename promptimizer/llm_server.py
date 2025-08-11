@@ -74,7 +74,7 @@ def call_nova(system, user, config):
 
 
 
-model_catalog = {'Nova Micro': 'us.amazon.nova-micro-v1:0',
+bedrock_model_catalog = {'Nova Micro': 'us.amazon.nova-micro-v1:0',
                  'Nova Pro': 'us.amazon.nova-micro-v1:0',
                  'Llama 3.1': 'us.amazon.nova-micro-v1:0',
                  'Nova-Lite': 'us.amazon.nova-micro-v1:0',
@@ -89,16 +89,13 @@ model_catalog = {'Nova Micro': 'us.amazon.nova-micro-v1:0',
                  'claude-3-sonnet': 'us.amazon.nova-micro-v1:0',
                  'llama-3.1-405b Instruct': 'us.amazon.nova-micro-v1:0',
                  'llama-3.1-70b Instruct': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0',
-                 'Chat GPT 4.1 Mini': 'gpt-4.1-mini-batch',
-                 'Chat GPT 4o Mini': 'gpt-4o-mini-batch', 
-                 'Chat GPT 4.1': 'gpt-4.1-batch'
+                 'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0'
 }
 
-azure_models = {'Chat GPT 4.1 Mini': 'openai/deployments/gpt-4.1-mini-batch/chat/completions?api-version=2025-01-01-preview',
-                'Chat GPT 4o Mini': '', 
-                'Chat GPT 4.1 Nano': 'openai/deployments/gpt-4.1-nano/chat/completions?api-version=2025-01-01-preview',
-                'Chat GPT 4.1': 'openai/deployments/gpt-4.1-batch/chat/completions?api-version=2025-01-01-preview'
+azure_model_catalog = {'Chat GPT 4.1 Mini': 'gpt-4.1-mini-batch',
+                 'Chat GPT 4o Mini': 'gpt-4o-mini-batch',
+                 'Chat GPT 4.1': 'gpt-4.1-batch'
+                
                 }
 
 
@@ -128,7 +125,7 @@ def kick_off(input_path, output_path, job_id, model):
     try:
         response=boto3_bedrock.create_model_invocation_job(
             roleArn = 'arn:aws:iam::344400919253:role/bedrock_batch',
-            modelId = model_catalog[model],
+            modelId = bedrock_model_catalog[model],
         
             jobName=job_id + '-' + model,
             inputDataConfig=inputDataConfig,
@@ -143,15 +140,11 @@ def kick_off(input_path, output_path, job_id, model):
 
 
 
+def select_model(model_catalog):
 
 
-@app.route("/prompt_preview")
-def prompt_preview():
- 
-    use_case = request.args.get('use_case')
-    deployment = request.args.get('deployment')
-    prompt_library = import_module('promptimizer.prompt_library.'+use_case)
     options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 50, 100, 150, 200]])
+
     model_select = "        <td>\n                <select name=\"model-{}\">\n" + options + "\n            </select>\n        </td>\n"
     model_section = ''
     for i, model_name in enumerate(model_catalog.keys()):
@@ -166,8 +159,18 @@ def prompt_preview():
             row_start = "        <tr>\n"
             row_end = "            <td></td>\n"
         model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(model_name) + row_end + "\n"
+    return model_section
 
-    return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, use_case, deployment, 
+
+@app.route("/prompt_preview")
+def prompt_preview():
+ 
+    use_case = request.args.get('use_case')
+    prompt_library = import_module('promptimizer.prompt_library.'+use_case)
+    model_section = select_model(bedrock_model_catalog) + select_model(azure_model_catalog)
+
+
+    return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, use_case, 
                                              prompt_library.writer_system, prompt_library.writer_user, 
                                              prompt_library.separator, prompt_library.task_system, prompt_library.label_name,
                                              model_section)
@@ -193,7 +196,7 @@ def batchrock(use_case, jsonl, models, random_string, key_path):
 
 
     for model_name in models.keys():
-        if (models[model_name] >=100) & (model_name in model_catalog.keys()):
+        if (models[model_name] >=100) & (model_name in bedrock_model_catalog.keys()):
             filename = f'{random_string}/{model_name}.jsonl'
             filenames.append(filename)
             client.put_object(Body="\n".join(jsonl[:models[model_name]]),
@@ -206,7 +209,7 @@ def batchrock(use_case, jsonl, models, random_string, key_path):
                 f.write("\n".join(jsonl))
             client.close()
         elif (models[model_name] > 0):
-            if model_name not in azure_models.keys():
+            if model_name not in azure_model_catalog.keys():
                 print (f'ERROR unkown model: {model_name}.', models[model_name])
             else:
                 print('Azure Deployment', model_name)
@@ -225,11 +228,10 @@ def make_jsonl(prompt_system, prompt_user, model, temp, n_records, demo_path = N
     else:
         demonstrations = False
 
-
     jsonl = []
     for i in range(n_records):
         if demonstrations:
-            if model != 'bedrock':
+            if model in [azure_model_catalog[m] for m in azure_model_catalog.keys()]:
                 samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
                         [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
             else:
@@ -283,7 +285,6 @@ def enumerate_prompts():
         demo_path = '/tmp/demonstrations.csv'
     else:
         demo_path = ''
-    #deployment = request.args.get('deployment', '')
     n_rows = request.args.get('rows', '')
     use_case = request.args.get('use_case', '')
     password = request.form['password']
@@ -307,10 +308,9 @@ def enumerate_prompts():
         if 'model' == k[:5]:
             n = int(request.form[k])
             if n > 0:
-                if k[6:] in azure_models.keys():
-                    azure_jsonls.append((make_jsonl(prompt_system, prompt_user, 
-                                                    model_catalog[k[6:]], .9, n, demo_path),
-                                        azure_models[k[6:]]))
+                if k[6:] in azure_model_catalog.keys():
+                    azure_jsonls.append(make_jsonl(prompt_system, prompt_user, 
+                                                    azure_model_catalog[k[6:]], .9, n, demo_path))
                     azure_models_enumerated[k[6:]] = n
 
                 else:
@@ -320,7 +320,7 @@ def enumerate_prompts():
 
                 all_models[k[6:]] = n
                 total_calls += n
-                sidebar += tworows.format(k[:6], n)
+                sidebar += tworows.format(k[6:], n)
 
 
     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
@@ -384,16 +384,12 @@ def check_status():
     next_action = request.args.get('next_action')
     sidebar = "<table>" + tworows.format('Use Case', use_case) + \
             tworows.format('Evaluator', request.form['evaluator']) + '</table>'
-    if 'deployment' in request.form.keys():
-        deployment = request.form['deployment']
-    else:
-        deployment = ''
     #models = request.form['models']
     hidden_variables = ''
     print(request.form.keys())
     for v in ['separator', 'label', 'task_system', 'evaluator', 'bedrock_models',
               'azure_models',
-              'batch_size', 'n_batches', 'key_path', 'deployment',
+              'batch_size', 'n_batches', 'key_path', 
               'jobArn', 'setup_id', 'filename_ids', 'azure_file_id', 
               'azure_job_id']:
         if v in request.form.keys():
@@ -401,7 +397,6 @@ def check_status():
                 hidden_variables += hidden.format(v, request.form[v])
         else:
             print('Not included in check status', v)
-    print('valid', deployment)
     azure_prompts = []
     bedrock_prompts = []
 
@@ -417,6 +412,7 @@ def check_status():
         batch_ids = {}
         output_file_ids = []
         for batch_id in request.form['azure_job_id'].split(';'):
+            print(batch_id)
             batch_response = azure_client.batches.retrieve(batch_id)
             batch_ids[batch_id] = batch_response.status
             if batch_response.status == 'failed':
@@ -549,8 +545,6 @@ def get_prompts(prompt_key, job_ids, models):
 
 @app.route("/optimize", methods=['POST'])
 def pre_optimize():
-    
-
      subdirectories = [request.form['filename_id'] + '/' + request.form[k] for k in request.form.keys() if k[:6] == 'job_id']
 
      s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
@@ -562,7 +556,6 @@ def pre_optimize():
          s3.put_object(Body=request.files['data'].stream.read(),
                        Bucket=bucket, Key=request.form['key_path'] + '/training_data/' + request.form['setup_id'])
 
-     print(request.form.keys())
 
      obj = s3.get_object(Bucket=bucket, Key=request.form['key_path']+'/output/'+request.form['setup_id'] + '/consolidated.csv')
      prompts = obj['Body'].read().decode('utf-8').split("|")
@@ -632,7 +625,7 @@ def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
     #timestamp = datetime.datetime.today()
 
 
-    batch_response_id, azure_file_id = azure_batch([(evaluation_jsonl, 'waste')])
+    batch_response_id, azure_file_id = azure_batch([evaluation_jsonl])
     azure_file_ids = opt_parameters['azure_file_id'] + ';' + azure_file_id[0]
 
     n_training_examples = df.shape[0]
@@ -672,9 +665,8 @@ def azure_batch(jsonls):
     for i, jsonl in enumerate(jsonls):
         filename = '/tmp/job_{}.jsonl'.format(i)
         with open(filename, 'w') as f:
-            f.write("\n".join(jsonl[0]))
+            f.write("\n".join(jsonl))
         #jobArns.append(azure_batch('/tmp/jobs.jsonl')]
-        print(jsonl[1])
         azure_client = openai.AzureOpenAI(
                 api_key=os.environ['AZURE_OPENAI_KEY'],
                 api_version="2024-10-21",
@@ -840,7 +832,8 @@ def bayes(use_case, filename_id, par, stats):
         best_idx = bbo.get_best_batch(batch_mu, batch_sigma, par['batch_size'])
     except Exception as e:
         print(e)
-        print('might have the wrong evaluation function', evaluator)
+        print('might have the wrong evaluation function', par['evaluator'])
+        best_idx = random.sample(range(len(batch_idx)), 1)[0]
     performance_report += "</table>"
     best_prompt = " &nbsp; <i>Best Prompt So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(prompts[int(best_prompt_id)], max(Q))
     print(batch_idx[best_idx])
