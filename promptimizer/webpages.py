@@ -129,33 +129,38 @@ optimize_form = """<html>
         <td colspan=2>{}</td>
         <td>  &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td></tr>
     <tr>
-        <td></td>
         <form action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
+        {}
+    </tr>
+        <tr>
+        <td></td>
               <td>
                   Training Data File
               </td>
-              <td><input type="file" name="data">
-                  {}
+              <td><input type="file" name="data"></input>
               </td>
         <td></td>
     </tr>
     <tr>
         <td></td>
-        <td>
-                Name of output file (internal use)
-              </td>
-              <td>
-                <input type="text" name="filename_id" value="{}">
-              </td>
+        <td><b>Separator</b>Separates prompt and obserrvation.</td>
+        <td><input width=70 type="text" name="separator" value="{}"></input</td>
         <td></td>
     </tr>
+    <tr>
+        <td></td>
+        <td><b>Task System</b> Accompanies the prompt to be written.</td>
+        <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
+        <td></td>
+    </tr>
+
     <tr>
         <td></td>
                 <td>
                   Key Path (internal use)
                 </td>
                 <td>
-                  <input type="text" name="key_path" value={}>
+                  <input type="text" name="key_path" value="{}">
                 </td>
         <td></td>
     </tr>
@@ -211,6 +216,28 @@ check_status_form = """<html>
 </html>
 """
 
+demonstrations_input ="""    <tr>
+        <td></td>
+        <td><b>Demonstrations </b>when enumerating the space. <br> Currently, only implemented for defect_detection.</td>
+        <td><input type="file" name="demonstrations"></td>
+        <td></td>
+    </tr>
+"""
+
+separator_and_task_system_input = """    <tr>
+        <td></td>
+        <td><b>JSON key</b> for label. Should match the prompt.</td>
+        <td><input width=70 type="text" name="label" value="{}"></input</td>
+        <td></td>
+    </tr>
+    <tr>
+        <td></td>
+        <td><b>Task System</b> Accompanies the prompt to be written.</td>
+        <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
+        <td></td>
+    </tr>
+
+"""
 
 
 enumerate_prompts =  """
@@ -218,15 +245,15 @@ enumerate_prompts =  """
 <style>
 {}
 </style>
-<br>
 <body>
 {}
+<div class="column row"></div>
 <div class="column small"></div>
 <div class="column middle_big">
 <form action="/enumerate_prompts?use_case={}" method="POST"  enctype="multipart/form-data">
 
-
-<table border=0>
+ <div class="shaded">
+ <table border=0>
     <tr>
         <td></td>
         <td colspan=2>
@@ -249,28 +276,11 @@ enumerate_prompts =  """
     </tr>
     <tr>
         <td></td>
-        <td><b>Seperator</b><br> This will be used when adding your data to the prompt.</td>
-        <td><input type="text" name="separator" rows=3 value="{}"></input></td>
-        <td></td>
-    </tr>
-    <tr>
-        <td></td>
-        <td><b>Task System</b> Accompanies the prompt to be written.</td>
-        <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
-        <td></td>
-    </tr>
-    <tr>
-        <td></td>
         <td><b>JSON key</b> for label. Should match the prompt.</td>
         <td><input width=70 type="text" name="label" value="{}"></input</td>
         <td></td>
     </tr>
-    <tr>
-        <td></td>
-        <td><b>Demonstrations </b>when enumerating the space. <br> Currently, only implemented for defect_detection.</td>
-        <td><input type="file" name="demonstrations"></td>
-        <td></td>
-    </tr>
+    {}
     <tr>
         <td></td>
         <td><b>Evaluation </b>method for label. Should match the prompt output.</td>
@@ -318,6 +328,13 @@ enumerate_prompts =  """
     </tr>
     <tr>
         <td></td>
+        <td>Email Address</td>
+        <td><input name="email_address" type="text"></input>
+        <td></td>
+    </tr>
+
+    <tr>
+        <td></td>
         <td>Password</td>
         <td><input name="password" type="text"></input>
         <td></td>
@@ -330,10 +347,15 @@ enumerate_prompts =  """
         <td><input type=submit value=submit></input>
         <td></td>
     </tr>
-</table>
+ </table>
+ </div>
 </div>
 <div class="column small"></div></form>
+<div class="column row"></div>
 """
+
+
+
 header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 <div class="header">
 <p align="right"><table><tr><td>
@@ -347,13 +369,34 @@ header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 </div>
 
 <div class="topnav">
-<a href="https://promptimizer-g4ab.onrender.com">Home</a>
+<a href="/">Home</a>
+<a href="/">Signup</a>
 <a href="https://quantecarlo.com">Quante Carlo</a>
 <a href="/rag">How to prepare RAG</a>
+
 </div>
-
-
 """
+
+sign_up = """<html>
+<style>
+{}
+</style>
+<body>
+{}
+
+<form action="signup">
+<table>
+    <tr>
+        <td>Email</td>
+        <td> type="text></td>
+    </tr>
+</table>
+</form>
+
+</html>
+"""
+
+
 use_case_selector = """
 <html>
 <style>
@@ -362,6 +405,7 @@ use_case_selector = """
 
 <body>
 {}
+<div class="column row"></div>
 <table border=0>
     <tr>
         <td>
@@ -370,77 +414,165 @@ use_case_selector = """
         <td>
         </td>
         <td align='right'>
-
         </td>
         <td>
             &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
         </td>
     </tr>
+
+        <tr>
+            <td></td>
+            <td>
+                <h2>Tutorial Instructions</h2>
+                <font size="+1">
+                <ol><li>Decide on a Tutorial.</li>
+                    <li>Download the corresponding training file.</li>
+                    <li>Make a note of the corresponding metric.</li>
+                    <li>Select the use case.</li>
+                </ol>
+            </td>
+            <td>
+                <b>Next Screens</b>
+                <ol start="5">
+                    <li>You will choose the corresponding metric on the next screen.</li>
+                    <li>Click submit to create the search space</li>
+                    <li>After the search space is created, you will upload a file of labeled data to perform the optimization.</li>
+                </ol>
+        </td>
+        <td>
+            &nbsp; &nbsp; &nbsp; &nbsp;
+        </td>
+    </tr>
+
+
+
+
+
     <tr><td colspan=4> &nbsp; </td></tr>
     <tr>
         <td>
             &nbsp; &nbsp; &nbsp; &nbsp;
         </td>
         <td colspan=2>
-            <h2>Select Use Case</h2>
+            <div class="shaded"><center>
             <table border=0>
+                <tr>
+                    <td>
+                        <u>Use Case</u>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        <u>Description</u>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        <u>Source</u>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        <u>Prepared File</u>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        <u> Metric</u>
+                    </td>
+                </tr>
                 <tr>
                     <td>
                         <a href="/prompt_preview?use_case=medical_diagnosis">Medical Diagnosis</a>
                     </td>
+                    <td> &nbsp; </td>
                     <td>
                         Diagnose a patient based on text describing his or her symptoms.
                     </td>
+                    <td> &nbsp; </td>
                     <td>
                         <a href="https://https://huggingface.co/datasets/gretelai/symptom_to_diagnosis">Hugging Face</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        <a href="data/medical_train_small.csv">medical_train_small.csv</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        Accuracy
                     </td>
                 </tr>
                 <tr>
                     <td>
                         <a href="/prompt_preview?use_case=ai_detector">AI Detector</a>
                     </td>
+                    <td> &nbsp; </td>
                     <td>
-                        Given some text, determine if the text was generated by a human or a language model.
+                        Determine if the text was generated by a human or a language model.
                     </td>
+                    <td> &nbsp; </td>
                     <td>
 
-                    <a href="https://www.kaggle.com/competitions/llm-detect-ai-generated-text/data?select=train_essays.csv">Kaggle</a>
+                        <a href="https://www.kaggle.com/competitions/llm-detect-ai-generated-text/data?select=train_essays.csv">Kaggle</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        <a href='/data/ai_generated.csv'>ai_generated.csv</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        AUC
                     </td>
                 </tr>
                 <tr>
                     <td>
                         <a href="/prompt_preview?use_case=defect_detector">Defect Detection</a>
                     </td>
+                    <td> &nbsp; </td>
                     <td>
-                       Given an image determine if the part is defective. <br>Can also be used to detect AI generated images. Important for fraud detection.
+                       Determine if the part is defective from an image.
                     </td>
+                    <td> &nbsp; </td>
                     <td>
-                       <a href="https://www.kaggle.com/datasets/ravirajsinh45/real-life-industrial-dataset-of-casting-product">Kaaggle</a>
+                       <a href="https://www.kaggle.com/datasets/ravirajsinh45/real-life-industrial-dataset-of-casting-product">Kaggle</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        <a href='/data/castings.csv'>castings.csv</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td>
+                        AUC
                     </td>
                 </tr>
             </table>
+            </center>
+            </div>
        </td>
        <td>
            &nbsp; &nbsp; &nbsp; &nbsp;
         </td>
         </tr>
         <tr>
-        <td></td>
-        <td colspan=2><hr></td>
-        <td></td>
+            <td></td>
+            <td colspan=2><hr></td>
+            <td></td>
         </tr>
         <tr>
-        <td></td>
-        <td colspan=2>
-            <ul>
-                <li> <font size="+1">The input file needs to have two columns labeled 'input' and 'output'.</li>
-                <li>If you're using RAG, prepare the input file <a href="/rag">accordingly.</a></li>
-                <li>There are three kinds of evaluators:
-                <ol><li>Accuracy - If target matches or not</li>
-                    <li>AUC - probability must be from the following list: <i>'very unlikely', 'unlikely', 'equally likely and unlikely', 'likely', 'very likely'</i></li>
-                    <li>AI prompt - there will be an additional prompt that evaluates the input and the answer and gives a 'correct' or 'incorrect' verdict.</li></ol></li>
-            </ul>
-            </font>
+            <td></td>
+            <td colspan=2>
+                <font size="+1">
+                <b>Notes regarding Defect Detection Tutorial:</b>
+                <ul>
+                    <li>Defect Detection uses image data.</li>
+                    <li>Defect Detection is the only use case that uses <i>demonstrations</i>. Demonstrations are few shot examples to choose from when making a prompt. The Defect Detection tutorial also optimizes the choice of image to use in the few shot examples.</li>
+                    <li>On the next screen, there is a place to upload demonstrations. <b>Only upload demonstrations if selecting the Defect Detection use case.</b> </li>
+                    <li>The tutorial for Defection Detection must use only open AI models to enumerate the search space.</li>
+                </ul>
+                <b>Notes when using your own prompts.</b><br>
+                    &bull; The input file needs to have two columns labeled 'input' and 'output'.<br>
+                    &bull; If you're using RAG, prepare the input file <a href="/rag">accordingly.</a><br>
+                    &bull; There are three kinds of evaluators:
+                    <ol><li>Accuracy - If target matches or not</li>
+                        <li>AUC - probability must be from the following list: <i>'very unlikely', 'unlikely', 'equally likely and unlikely', 'likely', 'very likely'</i></li>
+                        <li>AI prompt - there will be an additional prompt that evaluates the input and the answer and gives a 'correct' or 'incorrect' verdict.</li></ol>
+               </font>
         </td>
         <td>
             &nbsp; &nbsp; &nbsp; &nbsp;

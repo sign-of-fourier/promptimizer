@@ -3,14 +3,15 @@ style="""* {
 }
 
 body {
-  margin: 0;
-  background-color: aliceblue;
+  margin: 1;
+  /*background-color: aliceblue;*/
+  background-image: linear-gradient(to bottom right, aliceblue , white);
 }
 
 /* Style the header */
 .header {
-  /*background-color: #f1f1f1;*/
-  background-color: #b6b5ba;
+  background-image: linear-gradient(to bottom left, #edebec, #b6b5ba);
+  /*background-color: #b6b5ba;*/
   padding: 20px;
   text-align: center;
 }
@@ -18,7 +19,7 @@ body {
 /* Style the top navigation bar */
 .topnav {
   overflow: hidden;
-  background-color: #333;
+  background-color: #0f314d;
 }
 
 /* Style the topnav links */
@@ -87,11 +88,14 @@ body {
 
 .column.middle_big {
   width: 90%;
-  border: 1px solid orange;
-  border-radius 10px;
-  padding: 10px;
+  border: 0px solid white;
+  border-radius: 10px;
+  padding: 8px;
 }
-
+.column.row {
+   height: 1px;
+   width: 100%;
+}
 
 
 .rounded {
@@ -104,6 +108,8 @@ body {
     background: gainsboro;
     border: 1px solid cadetblue;
     border-radius: 10px;
+    box-shadow: 4px 8px 16px rgba(0, 0, 0, 0.15);
+
 }
 
 img {

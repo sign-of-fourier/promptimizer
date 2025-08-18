@@ -1,7 +1,8 @@
-from flask import Flask, send_file
+from flask import Flask, send_file, send_from_directory
 from flask import request
 import pandas as pd
 import re
+import time
 import base64
 import httpx
 from importlib import import_module
@@ -13,63 +14,8 @@ import string
 import openai
 from  promptimizer import webpages, css
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='data')
 
-
-def call_nova(system, user, config):
-    text = []
-
-    client = boto3.client(service_name="bedrock-runtime", region_name='us-east-2',
-                          aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-
-    model_id = 'arn:aws:bedrock:us-east-2:344400919253:inference-profile/us.amazon.nova-micro-v1:0'
-#    model_id = 'arn:aws:bedrock:us-east-2:344400919253:inference-profile/us.amazon.nova-pro-v1:0'
-    system_list = [
-            {
-                "text": system
-            }
-    ]
-
-    message_list = [{"role": "user", "content": [{'text': user}]}]
-
-    # Configure the inference parameters.
-    inf_params = {"maxTokens": config['max_tokens'], "topP": config['topP'], "topK": config['topK'], "temperature": config['temp']}
-
-    request_body = {
-        "schemaVersion": "messages-v1",
-        "messages": message_list,
-        "system": system_list,
-        "inferenceConfig": inf_params,
-    }
-
-
-    response = client.invoke_model_with_response_stream(
-        modelId=model_id, body=json.dumps(request_body)
-    )
-
-    request_id = response.get("ResponseMetadata").get("RequestId")
-
-    chunk_count = 0
-    time_to_first_token = None
-
-    stream = response.get("body")
-    if stream:
-        for event in stream:
-            chunk = event.get("chunk")
-            if chunk:
-                chunk_json = json.loads(chunk.get("bytes").decode())
-                content_block_delta = chunk_json.get("contentBlockDelta")
-                if content_block_delta:
-#                    if time_to_first_token is None:
-#                        time_to_first_token = datetime.now() - start_time
-#                    chunk_count += 1
-#                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")
-                    text.append(content_block_delta.get("delta").get("text"))
-    else:
-        print("No response stream received.")
-
-    return  "".join(text)
 
 
 
@@ -101,6 +47,9 @@ azure_model_catalog = {'Chat GPT 4.1 Mini': 'gpt-4.1-mini-batch',
 
 
 def kick_off(input_path, output_path, job_id, model):
+
+    print('kick_off', input_path, output_path, job_id, model)
+
     boto3_bedrock = boto3.client(service_name="bedrock", region_name='us-east-2', 
                                  aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
                                  aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
@@ -126,8 +75,7 @@ def kick_off(input_path, output_path, job_id, model):
         response=boto3_bedrock.create_model_invocation_job(
             roleArn = 'arn:aws:iam::344400919253:role/bedrock_batch',
             modelId = bedrock_model_catalog[model],
-        
-            jobName=job_id + '-' + model,
+            jobName=job_id + '-' + re.sub(' ', '-', model.lower()),
             inputDataConfig=inputDataConfig,
             outputDataConfig=outputDataConfig
         )
@@ -168,12 +116,16 @@ def prompt_preview():
     use_case = request.args.get('use_case')
     prompt_library = import_module('promptimizer.prompt_library.'+use_case)
     model_section = select_model(bedrock_model_catalog) + select_model(azure_model_catalog)
+    use_case_specific = hidden.format('separator', prompt_library.separator)+\
+            hidden.format('task_system', prompt_library.task_system)
 
+    if use_case == 'defect_detector':
+        
+        use_case_specific += webpages.demonstrations_input
 
     return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, use_case, 
                                              prompt_library.writer_system, prompt_library.writer_user, 
-                                             prompt_library.separator, prompt_library.task_system, prompt_library.label_name,
-                                             model_section)
+                                             prompt_library.label_name, use_case_specific, model_section)
 
 
 hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
@@ -185,7 +137,6 @@ bucket = 'sagemaker-us-east-2-344400919253'
 
 def batchrock(use_case, jsonl, models, random_string, key_path):
 
-    filenames = []
     jobArns = []
     try:
         client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
@@ -196,14 +147,15 @@ def batchrock(use_case, jsonl, models, random_string, key_path):
 
 
     for model_name in models.keys():
-        if (models[model_name] >=100) & (model_name in bedrock_model_catalog.keys()):
-            filename = f'{random_string}/{model_name}.jsonl'
-            filenames.append(filename)
+        if (models[model_name] >= 100) & (model_name in bedrock_model_catalog.keys()):
+            filename = re.sub(' ', '-', model_name.lower()) + '.jsonl'
+            #filename = f"{random_string}/{model_name}.jsonl"
             client.put_object(Body="\n".join(jsonl[:models[model_name]]),
-                              Bucket=bucket, Key=key_path + '/input/' + filename)
+                              Bucket=bucket, Key=key_path + '/input/' + random_string + '/' + filename)
 
-            jobArns.append(kick_off('s3://' + bucket + '/' + key_path + '/input/' + filename, 
-                                    's3://' + bucket + '/' + key_path + '/output/' + random_string + '/', random_string, model_name))
+            jobArns.append(kick_off('s3://' + bucket + '/' + key_path + '/input/' + random_string + '/' + filename, 
+                                    's3://' + bucket + '/' + key_path + '/output/' + random_string + '/', random_string, 
+                                    model_name))
 
             with open('/tmp/' + random_string + '-' + model_name + '.jsonl', 'w') as f:
                 f.write("\n".join(jsonl))
@@ -276,16 +228,17 @@ def make_jsonl(prompt_system, prompt_user, model, temp, n_records, demo_path = N
 
 @app.route("/enumerate_prompts", methods=['POST'])
 def enumerate_prompts():
+    
+    if 'demonstrations' in request.files.keys():
+        if request.files['demonstrations'].filename:
+            demo_path = '/tmp/demonstrations.csv'
 
-    if request.files['demonstrations'].filename:
-        demo_path = '/tmp/demonstrations.csv'
-
-        with open(demo_path, 'wb') as f:
-            f.write(request.files['demonstrations'].stream.read())
-        demo_path = '/tmp/demonstrations.csv'
+            with open(demo_path, 'wb') as f:
+                f.write(request.files['demonstrations'].stream.read())
+            demo_path = '/tmp/demonstrations.csv'
     else:
         demo_path = ''
-    n_rows = request.args.get('rows', '')
+
     use_case = request.args.get('use_case', '')
     password = request.form['password']
     if password != os.environ['APP_PASSWORD']:
@@ -313,16 +266,18 @@ def enumerate_prompts():
                                                     azure_model_catalog[k[6:]], .9, n, demo_path))
                     azure_models_enumerated[k[6:]] = n
 
-                else:
+                elif k[6:] in bedrock_model_catalog.keys():
                     if int(request.form[k]) > bedrock:
                         bedrock = n
                     bedrock_models_enumerated[k[6:]] = n
+                else:
+                    return f"No model {k} for this task"
 
                 all_models[k[6:]] = n
                 total_calls += n
                 sidebar += tworows.format(k[6:], n)
 
-
+    print('got model list')
     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
     timestamp = datetime.datetime.today()
     key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
@@ -330,6 +285,8 @@ def enumerate_prompts():
 
     if bedrock:
         bedrock_jsonl = make_jsonl(prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
+        print(random_string)
+        print('batchrock', len(bedrock_jsonl[0]))
         jobArns = batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
     else:
         print('no bedrock')
@@ -353,16 +310,16 @@ def enumerate_prompts():
             hidden.format('setup_id', random_string)+hidden.format('key_path', key_path)
     for h in ['separator', 'label', 'evaluator', 'task_system', 'n_batches', 
               'batch_size']:
-        hidden_variables += hidden.format(h, request.form[h])
-
+        if h in request.form.keys():
+            hidden_variables += hidden.format(h, request.form[h])
+        else:
+            print(h, 'not in enumerate_prompts')
     sidebar += "<tr><td><b>Evaluator</b></td><td>"+request.form['evaluator']+"</td></tr>\n"+\
             tworows.format('N Batches', '10M') + tworows.format('Batch Size', batch_size) + "</table>"
 
     message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes."
     return webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar, use_case, 'optimize', 
                                              message, "<font color=\"lightslategrey\"><i>Waiting ...</i></font>" + hidden_variables)        
-
-
 
 
 tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
@@ -385,18 +342,6 @@ def check_status():
     sidebar = "<table>" + tworows.format('Use Case', use_case) + \
             tworows.format('Evaluator', request.form['evaluator']) + '</table>'
     #models = request.form['models']
-    hidden_variables = ''
-    print(request.form.keys())
-    for v in ['separator', 'label', 'task_system', 'evaluator', 'bedrock_models',
-              'azure_models',
-              'batch_size', 'n_batches', 'key_path', 
-              'jobArn', 'setup_id', 'filename_ids', 'azure_file_id', 
-              'azure_job_id']:
-        if v in request.form.keys():
-            if request.form[v] != 'not applicable':
-                hidden_variables += hidden.format(v, request.form[v])
-        else:
-            print('Not included in check status', v)
     azure_prompts = []
     bedrock_prompts = []
 
@@ -423,6 +368,9 @@ def check_status():
             elif batch_response.status == 'completed':
                 completed += 1
                 output_file_ids.append(batch_response.output_file_id)
+
+            output_file_id= batch_response.output_file_id
+
         print('completed', completed, len(request.form['azure_job_id'].split(';')))
         if completed == len(request.form['azure_job_id'].split(';')):
             
@@ -452,7 +400,11 @@ def check_status():
             if 'azure_models' in request.form.keys():
                 azure_status = ''.join([threerows.format(m, batch_ids[k], k) for m, k in zip(request.form['azure_models'].split(';'), batch_ids.keys())])
             else:
-                azure_status = tworows.format('Jimmie', batch_response.status)
+                now = time.time()
+                minutes = round((now-batch_response.created_at)/60)
+                seconds = round((now-batch_response.created_at) % 60)
+                azure_status = tworows.format("Time Elaspsed", f"{minutes}m {seconds}s") +\
+                        tworows.format("Current Status", batch_response.status)
     else:
         azure_finished = 1
         azure_status = ''
@@ -477,9 +429,10 @@ def check_status():
             
             get_s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                                   aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-
             for j, m in zip([j.split('/')[-1] for j in jobArns], request.form['bedrock_models'].split(';')):
-                obj = get_s3.get_object(Bucket=bucket, Key=request.form['key_path'] + '/output/'+request.form['setup_id']+f'/{j}/{m}.jsonl.out')
+                output_file_id = f'/{j}/'+re.sub(' ', '-', m.lower())+'.jsonl.out'
+                obj = get_s3.get_object(Bucket=bucket, 
+                                        Key=request.form['key_path'] + '/output/'+request.form['setup_id']+output_file_id)
                 jsonl += obj['Body'].read().decode('utf-8').split("\n")
             get_s3.close()
             bedrock_prompts = [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
@@ -491,22 +444,40 @@ def check_status():
         bedrock_finished = 1
 
 
-    print(azure_finished,bedrock_finished, azure_finished & bedrock_finished)
+
+    hidden_variables = ''
+
+    for v in ['label', 'evaluator', 'bedrock_models',
+              'azure_models',
+              'batch_size', 'n_batches', 'key_path',
+              'jobArn', 'setup_id', 'filename_ids', 'azure_file_id',
+              'azure_job_id']:
+        if v in request.form.keys():
+            if request.form[v] != 'not applicable':
+                hidden_variables += hidden.format(v, request.form[v])
+        else:
+            print('Not included in check status', v)
+
+
 
     if azure_finished & bedrock_finished:
     #status_print = [m + ' &nbsp; ' + s for s, m in zip(status, models.split(';'))]
 
+        
         s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                           aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
         s3.put_object(Body="|".join(azure_prompts + bedrock_prompts).encode('utf-8'),
                       Bucket=bucket, Key=request.form['key_path'] + '/output/' + request.form['setup_id'] + '/consolidated.csv')
         s3.close()
 
-
+        hidden_variables 
+        print(hidden_variables)
         return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, search_space_message, use_case,
-                                             hidden_variables, batch_response.output_file_id, request.form['key_path'])
+                                             hidden_variables, request.form['separator'], request.form['task_system'], 
+                                             request.form['key_path'])
     else:
-
+        hidden_variables += hidden.format('separator', request.form['separator'])+\
+                hidden.format('task_system', request.form['task_system'])
         return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar,
                                        f'<table> {azure_status} {bedrock_status}</table>',
                                        use_case, next_action, hidden_variables)
@@ -550,12 +521,12 @@ def pre_optimize():
      s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
+ 
      if not request.files['data'].filename:
          return "No training File"
      else:
          s3.put_object(Body=request.files['data'].stream.read(),
                        Bucket=bucket, Key=request.form['key_path'] + '/training_data/' + request.form['setup_id'])
-
 
      obj = s3.get_object(Bucket=bucket, Key=request.form['key_path']+'/output/'+request.form['setup_id'] + '/consolidated.csv')
      prompts = obj['Body'].read().decode('utf-8').split("|")
@@ -565,10 +536,8 @@ def pre_optimize():
 
      E = get_embeddings(prompts)
      print('done with embeddings')
-     print(request.form.keys())
-     print(request.form['filename_id'])
 
-     X = {'setup_id': request.form['filename_id']}
+     X = {}
      for x in request.form.keys():
          X[x] = request.form[x]
 
@@ -579,13 +548,14 @@ def pre_optimize():
      return optimize(request.args.get('use_case'), range(4), X)
 
 
-def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
+
+def optimize(use_case, prompt_ids, parameters, performance_report = ()):
+
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-    print('reading ', bucket, opt_parameters['key_path'], opt_parameters['setup_id'])
-    df = pd.read_csv('s3://' + bucket + '/' + opt_parameters['key_path'] + '/training_data/' + opt_parameters['setup_id'])
+    df = pd.read_csv('s3://' + bucket + '/' + parameters['key_path'] + '/training_data/' + parameters['setup_id'])
 
     if ('input' in df.columns) & ('output' in df.columns):
         preview_text = []
@@ -600,7 +570,7 @@ def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
         return "Your file must contain columns with the names 'input' and 'output'."
 
     print('writing {} new files.'.format(len(prompt_ids)))
-    obj = s3.get_object(Bucket=bucket, Key=opt_parameters['key_path']+'/output/'+ opt_parameters['setup_id'] + '/consolidated.csv')
+    obj = s3.get_object(Bucket=bucket, Key=parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/consolidated.csv')
     prompts = obj['Body'].read().decode('utf-8').split("|")
 
     evaluation_jsonl = []
@@ -614,22 +584,20 @@ def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
                          'model': 'gpt-4o-mini-batch',
                         'temperature': .03,
                          'messages': [
-                             {'role': 'system', 'content': opt_parameters['task_system']},
-                             {'role': 'user', 'content': prompt + "\n" + opt_parameters['separator']+"\n" + text}
+                             {'role': 'system', 'content': parameters['task_system']},
+                             {'role': 'user', 'content': prompt + "\n" + parameters['separator']+"\n" + text}
                             ]
                          }
                      }
             evaluation_jsonl.append(json.dumps(query))
-    
-    #random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-    #timestamp = datetime.datetime.today()
-
-
+    print(len(prompt_ids))
+    print(df.shape)
+    print(len(evaluation_jsonl))
     batch_response_id, azure_file_id = azure_batch([evaluation_jsonl])
-    azure_file_ids = opt_parameters['azure_file_id'] + ';' + azure_file_id[0]
+    azure_file_ids = parameters['azure_file_id'] + ';' + azure_file_id[0]
 
     n_training_examples = df.shape[0]
-    sidebar = f"<table>" + tworows.format("Evaluator",opt_parameters['evaluator'])+\
+    sidebar = f"<table>" + tworows.format("Evaluator", parameters['evaluator'])+\
             tworows.format("Use Case", use_case)+\
             tworows.format("N Rows", n_training_examples)+ "</table>"
 
@@ -640,8 +608,8 @@ def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
     for k in ['setup_id', 'key_path', 'setup_id', 'evaluator', 'label',
               'n_batches', 'batch_size', 'separator', 'task_system',
               'filename_ids']:
-        if k in opt_parameters.keys():
-            hidden_variables += hidden.format(k, opt_parameters[k])
+        if k in parameters.keys():
+            hidden_variables += hidden.format(k, parameters[k])
         else:
             print(k, 'not defined in optimize')
 
@@ -657,8 +625,8 @@ def optimize(use_case, prompt_ids, opt_parameters, performance_report = ()):
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
     
 
-def azure_batch(jsonls):
 
+def azure_batch(jsonls):
 
     job_ids = []
     file_ids = []
@@ -932,7 +900,24 @@ def rage():
 def use_case_selector():
     return webpages.use_case_selector.format(css.style, webpages.header_and_nav) 
 
+@app.route('/debug/<name>')
+def debug(name):
+    return """<html>
+<style>{}</style>
+<body>
+{}
+<div class="column small"></div>
+<div class="column middle_big">
+{}
+</div>
+<div class="column small"></div
+</html>
+""".format(css.style, webpages.header_and_nav, name)
+    
 
+@app.route('/data/<path:filename>')
+def send_report(filename):
 
+    return send_from_directory(app.static_folder,  filename)
 
 
