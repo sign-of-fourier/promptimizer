@@ -38,7 +38,6 @@ def azure_batch(jsonls):
         filename = '/tmp/job_{}.jsonl'.format(i)
         with open(filename, 'w') as f:
             f.write("\n".join(jsonl))
-        #jobArns.append(azure_batch('/tmp/jobs.jsonl')]
         azure_client = openai.AzureOpenAI(
                 api_key=os.environ['AZURE_OPENAI_KEY'],
                 api_version="2024-10-21",
@@ -56,12 +55,11 @@ def azure_batch(jsonls):
                 completion_window="24h",
                 )
 
-        print(batch_response.id)
         job_ids.append(batch_response.id)
         file_ids.append(file.id)
         azure_client.close()
 
-    return job_ids,file_ids
+    return job_ids, file_ids
 
 
 def get_embeddings(input_text):

@@ -49,6 +49,10 @@ def select_model(model_catalog):
         model_section += row_start + "    <td>" + model_name + "    </td>\n" + model_select.format(model_name) + row_end + "\n"
     return model_section
 
+@app.route("/log")
+def log_write():
+    with open("/tmp/promptizer.log", 'a') as f:
+        f.write(request.form['message'])
 
 @app.route("/prompt_preview")
 def prompt_preview():
@@ -60,7 +64,6 @@ def prompt_preview():
             hidden.format('task_system', prompt_library.task_system)
 
     if use_case == 'defect_detector':
-        
         use_case_specific += webpages.demonstrations_input
 
     return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, use_case, 
@@ -112,10 +115,39 @@ def user_library():
                                                                selection['writer_user'].iloc[0], selection['label'].iloc[0], 
                                                                use_case_specific, model_section, status_message))
     if status == 200:
-        response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=1800)
+        response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=7200)
         response.set_cookie('quante_carlo_password', request.form['password'], max_age=1798)
 
     return response
+
+
+
+@app.route("/load_job", methods=['POST', 'GET'])
+def load_job():
+
+
+    email_address = request.cookies.get('quante_carlo_email')
+    password = request.cookies.get('quante_carlo_password')
+
+
+    if (email_address is not None) & (password is not None):
+
+        jobs = user_db.dynamo_jobs().get_jobs({'email_address':email_address})
+
+        for pid, user, system, u in zip(jobs['setup_id'], jobs['meta_prompt'], ['transaction_timestamp'],
+                                        jobs['use_case']):
+
+            user_prompts += five_radio(pid, user, system, u)
+
+        response = make_response(webpages.load_prompt.format(css.style, webpages.navbar,
+                                                             user_prompts,hidden_variables))
+
+        print(jobs)
+        return str(jobs)
+
+    else:
+        return webpages.sign_in.format(css.style, webpages.navvar, 'Timed out')
+
 
 
 @app.route("/load_prompt", methods=['POST', 'GET'])
@@ -124,6 +156,8 @@ def load_prompt():
 
     email_address = request.cookies.get('quante_carlo_email')
     password = request.cookies.get('quante_carlo_password')
+
+
     if (email_address is not None) & (password is not None):
 
         user_library, status = prompt_manager({'email_address': email_address,
@@ -134,6 +168,8 @@ def load_prompt():
         password = request.form['password']
     else:
         status = -1
+
+    write_log(f'load_prompt: status = {status}') 
 
     if status == 200:
         user_prompts = ''
@@ -146,7 +182,7 @@ def load_prompt():
 
         response = make_response(webpages.load_prompt.format(css.style, webpages.header_and_nav,  user_prompts,hidden_variables))
 
-        response.set_cookie('quante_carlo_email', email_address, max_age=1800)
+        response.set_cookie('quante_carlo_email', email_address, max_age=3600)
         response.set_cookie('quante_carlo_password', password, max_age=1798)
 
         return response
@@ -159,7 +195,7 @@ def enumerate_prompts():
    
 
     use_case = request.args.get('use_case', '')
-    print(request.form.keys())
+
 
     if request.form['submit'] == 'Save':
 
@@ -186,7 +222,7 @@ def enumerate_prompts():
                                                  request.form['writer_system'],
                                                  request.form['writer_user'], request.form['label'], use_case_specific, model_section, save_status))
         if status != 209:
-            response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=1800)
+            response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
             response.set_cookie('quante_carlo_password', request.form['password'], max_age=1800)
 
         return response
@@ -230,11 +266,11 @@ def enumerate_prompts():
     auth = authenticate(request.form)
     if auth != 'Approved':
         return 'wrong credentials... wah, wah ...'
+    else:
+        usage = user_db.dynamo_usage()
+        usage_json = usage.get_usage(request.form)
+        print('usage', usage_json)
 
-    print('Auth', auth)
-    #password = request.form['password']
-    #if password != os.environ['APP_PASSWORD']:
-    #    return 'Wrong password ... wah wah'
     prompt_user = request.form['writer_user']
     prompt_system = request.form['writer_system']
     n_batches = request.form['n_batches']
@@ -269,31 +305,29 @@ def enumerate_prompts():
                 total_calls += n
                 sidebar += tworows.format(k[6:], n)
 
-    print('got model list')
     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
     timestamp = datetime.datetime.today()
     key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
 
+    jdb = user_db.dynamo_jobs()
+    job_status = jdb.initialize({"email_address": request.form['email_address'], 'meta_system': request.form['writer_system'],
+                                 "setup_id": random_string, 'meta_user': request.form['writer_user']})
 
+    write_log('enumerate_prompts (job_status): ' + str(job_status))
     if bedrock:
         bedrock_jsonl = ops.make_jsonl(prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
-        print(random_string)
-        print('batchrock', len(bedrock_jsonl[0]))
         jobArns = ops.batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
+
     else:
-        print('no bedrock')
         jobArns = []
     
 
     if len(azure_jsonls) > 0:
-        print('azure batch')
         job_ids, azure_file_ids = ops.azure_batch(azure_jsonls)
     else:
         job_ids = []
         azure_file_ids = []
     
-    print(job_ids)
-
     hidden_variables = hidden.format('azure_models', ';'.join([m for m in azure_models_enumerated.keys() if azure_models_enumerated[m] >= 0]))+\
             hidden.format('bedrock_models', ';'.join([m for m in bedrock_models_enumerated.keys() if bedrock_models_enumerated[m] >= 0]))+\
             hidden.format('jobArn',  ";".join(jobArns)) + \
@@ -301,7 +335,7 @@ def enumerate_prompts():
             hidden.format('azure_file_id', ';'.join(azure_file_ids))+\
             hidden.format('setup_id', random_string)+hidden.format('key_path', key_path)
     for h in ['separator', 'label', 'evaluator', 'task_system', 'n_batches', 
-              'batch_size']:
+              'batch_size', 'email_address']:
         if h in request.form.keys():
             hidden_variables += hidden.format(h, request.form[h])
         else:
@@ -310,8 +344,14 @@ def enumerate_prompts():
             tworows.format('N Batches', '10M') + tworows.format('Batch Size', batch_size) + "</table>"
 
     message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes."
-    return webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar, use_case, 'optimize', 
-                                             message, "<font color=\"lightslategrey\"><i>Waiting ...</i></font>" + hidden_variables)        
+    
+    response = make_response(webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar, use_case, 'optimize', 
+                                                               message, "<font color=\"lightslategrey\"><i>Waiting ...</i></font>" + hidden_variables))
+
+    response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
+    response.set_cookie('quante_carlo_password', request.form['password'], max_age=1798)
+
+    return response
 
 
 tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
@@ -331,23 +371,31 @@ threerows = "<tr><td><b>{}</b></td><td>{}</td><td>{}</td></tr>\n"
 # waiting
 # optimize_Form
 
+def check_enumerate_status(request):
 
+    qc_email_address = request.cookies.get('quante_carlo_email')
+    qc_password = request.cookies.get('quante_carlo_password')
 
-@app.route("/check_status", methods=["POST"])
-def check_status():
-
-    search_space_message =  "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
+    email_address = request.form['email_address']
     use_case = request.args.get('use_case')
-    next_action = request.args.get('next_action')
-    email = request.cookies.get('quante_carlo_email')
     sidebar = "<table>" + tworows.format('Use Case', use_case) + \
-            tworows.format('Evaluator', request.form['evaluator']) 
-    #models = request.form['models']
-    if email:
-        sidebar += tworows.format('User', email) 
-    sidebar += '</table>'
+            tworows.format('Evaluator', request.form['evaluator'])
+
+    if qc_password:
+        usage_db = user_db.dynamo_usage()
+        usage = usage_db.get_usage({'email_address': qc_email_address})
+        current_tokens = usage['current_tokens'][-1]
+        sidebar += tworows.format('User',email_address)
+        sidebar += tworows.format('Balance', current_tokens)
+        print(pd.DataFrame(usage))
+    else:
+        write_log('!!! LOGGED OUT')
+
+
     azure_prompts = []
     bedrock_prompts = []
+
+    search_space_message =  "The search space has been created. Now it's time to evaluate some prompts."
 
     if request.form['azure_job_id'] != '':
         azure_client = openai.AzureOpenAI(
@@ -375,16 +423,199 @@ def check_status():
 
             output_file_id= batch_response.output_file_id
 
-        print('completed', completed, len(request.form['azure_job_id'].split(';')))
+
+        if completed == len(request.form['azure_job_id'].split(';')):
+
+            for output_file_id in output_file_ids:
+                azure_prompts, usage = azure_file(output_file_id)
+                status = user_db.dynamo_usage().update({'email_address': email_address,
+                                                        'delta_tokens': -sum(usage['total_tokens']),
+                                                        'prompt_tokens': sum(usage['prompt_tokens']),
+                                                        'completion_tokens': sum(usage['completion_tokens']),
+                                                        "note": "iteration " + output_file_id})
+                write_log(f'optimize (usage update status): {status}' + str(sum(usage['total_tokens'])))
+                write_log('optimize (n prompts): ' + str(len(azure_prompts)))
+                sidebar += tworows.format('Current Token Usage', sum(usage['total_tokens']))
+
+            azure_client.close()
+            azure_finished = 1
+        else:
+            azure_finished = 0
+            azure_client.close()
+            if 'azure_models' in request.form.keys():
+                azure_status = ''.join([threerows.format(m, batch_ids[k], k) for m, k in zip(request.form['azure_models'].split(';'), batch_ids.keys())])
+            else:
+                now = time.time()
+                minutes = round((now-batch_response.created_at)/60)
+                seconds = round((now-batch_response.created_at) % 60)
+                azure_status = tworows.format("Time Elaspsed", f"{minutes}m {seconds}s") +\
+                        tworows.format("Current Status", batch_response.status)
+    else:
+        azure_finished = 1
+        azure_status = ''
+
+    print('finished azure')
+    if request.form['jobArn'] != '':
+
+        jobArns = request.form['jobArn'].split(';')
+        bedrock = boto3.client(service_name="bedrock", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                                     aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+
+        status = [bedrock.get_model_invocation_job(jobIdentifier=j)['status'] for j in jobArns]
+        bedrock_status = ''.join([threerows.format(m, s, j) for s, m, j in zip(status, request.form['bedrock_models'].split(';'), jobArns)])
+
+        bedrock.close()
+        finished = sum([1 if x == 'Completed' else 0 for x in status]) == len(status)
+
+        if finished:
+        #    prompts = []#get_prompts(request.form['key_path']+'/output/' + filename_id, [j.split('/')[-1] for j in jobArns], models.split(';'))
+            bedrock_finished = 1
+            jsonl = []
+
+            get_s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                                  aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+            for j, m in zip([j.split('/')[-1] for j in jobArns], request.form['bedrock_models'].split(';')):
+                output_file_id = f'/{j}/'+re.sub(' ', '-', m.lower())+'.jsonl.out'
+                obj = get_s3.get_object(Bucket=bucket,
+                                        Key=request.form['key_path'] + '/output/'+request.form['setup_id']+output_file_id)
+                jsonl += obj['Body'].read().decode('utf-8').split("\n")
+            get_s3.close()
+            bedrock_prompts = [json.loads(j)['modelOutput']['output']['message']['content'][0]['text'] for j in jsonl if(j)]
+
+        else:
+            bedrock_finished = 0
+    else:
+        bedrock_status = ''
+        bedrock_finished = 1
+
+
+
+    hidden_variables = ''
+
+    for v in ['label', 'evaluator', 'bedrock_models',
+              'azure_models',
+              'batch_size', 'n_batches', 'key_path',
+              'jobArn', 'setup_id', 'filename_ids', 'azure_file_id',
+              'azure_job_id', 'email_address']:
+        if v in request.form.keys():
+            if request.form[v] != 'not applicable':
+                hidden_variables += hidden.format(v, request.form[v])
+        else:
+            print('Not included in check status', v)
+
+
+
+    if azure_finished & bedrock_finished:
+    #status_print = [m + ' &nbsp; ' + s for s, m in zip(status, models.split(';'))]
+
+
+        s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+        s3.put_object(Body="|".join(azure_prompts + bedrock_prompts).encode('utf-8'),
+                      Bucket=bucket, Key=request.form['key_path'] + '/output/' + request.form['setup_id'] + '/consolidated.csv')
+        s3.close()
+
+        return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar + '</table>', search_space_message, use_case,
+                                             hidden_variables, request.form['separator'], request.form['task_system'],
+                                             request.form['key_path'])
+    else:
+        hidden_variables += hidden.format('separator', request.form['separator'])+\
+                hidden.format('task_system', request.form['task_system'])
+
+        return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar + '</table>',
+                                       f'<table> {azure_status} {bedrock_status}</table>',
+                                       use_case, 'optimize', hidden_variables)
+
+
+
+
+
+
+@app.route("/check_status", methods=["POST"])
+def check_status():
+    next_action = request.args.get('next_action')
+    if next_action == 'optimize':
+        return check_enumerate_status(request)
+    else:
+        return check_iterate_status(request)
+
+
+def check_iterate_status(request):
+
+    search_space_message =  "Evaluate the prompts again (Bayesian Optimization Step)."
+    use_case = request.args.get('use_case')
+    next_action = request.args.get('next_action')
+    email_address = request.cookies.get('quante_carlo_email')
+    qc_password = request.cookies.get('quante_carlo_password')
+
+    sidebar = "<table>" + tworows.format('Use Case', use_case) + \
+            tworows.format('Evaluator', request.form['evaluator'])
+
+
+    if qc_password:
+        usage_db = user_db.dynamo_usage()
+        usage = usage_db.get_usage({'email_address': email_address})
+        current_tokens = usage['current_tokens'][-1]
+        sidebar += tworows.format('User',email_address)
+        sidebar += tworows.format('Balance', current_tokens)
+        print(pd.DataFrame(usage))
+    else:
+        write_log('!!! LOGGED OUT')
+        
+    
+    azure_prompts = []
+    bedrock_prompts = []
+
+
+    # 
+    # 1. Check if there is an Azure Job
+    #
+
+    if request.form['azure_job_id'] != '':
+        azure_client = openai.AzureOpenAI(
+                api_key=os.environ['AZURE_OPENAI_KEY'],
+                api_version="2024-10-21",
+                azure_endpoint = os.environ["AZURE_ENDPOINT"]
+                )
+
+        failed = 0
+        completed = 0
+        batch_ids = {}
+        output_file_ids = []
+        for batch_id in request.form['azure_job_id'].split(';'):
+            print(batch_id)
+            batch_response = azure_client.batches.retrieve(batch_id)
+            batch_ids[batch_id] = batch_response.status
+            if batch_response.status == 'failed':
+                failed += 1
+                azure_client.close()
+                return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
+
+            elif batch_response.status == 'completed':
+                completed += 1
+                output_file_ids.append(batch_response.output_file_id)
+
+            output_file_id= batch_response.output_file_id
+
+        ############################################
+        # 2. Check to see if Azure Job is complete #
+        ############################################
+
         if completed == len(request.form['azure_job_id'].split(';')):
             
             #azure_client.files.delete(request.form['filename_id'])
             if next_action == 'optimize': 
-
+               
                 for output_file_id in output_file_ids:
-                    print(output_file_id)
-                    raw_prompts = [json.loads(raw) for raw in azure_client.files.content(output_file_id).text.strip().split("\n")]
-                    azure_prompts += [p['response']['body']['choices'][0]['message']['content'] for p in raw_prompts]
+                    azure_prompts, usage = azure_file(output_file_id)
+                    status = user_db.dynamo_usage().update({'email_address': email_address,
+                                                            'delta_tokens': -sum(usage['total_tokens']),
+                                                            'prompt_tokens': sum(usage['prompt_tokens']),
+                                                            'completion_tokens': sum(usage['completion_tokens']),
+                                                            "note": "iteration " + output_file_id})
+                    write_log(f'optimize (usage update status): {status}' + str(sum(usage['total_tokens'])))
+                    write_log('optimize (n prompts): ' + str(len(azure_prompts)))
+                    sidebar += tworows.format('Current Token Usage', sum(usage['total_tokens']))
                 #custom_ids_components = jsponse['custom_id'].split('_')
                 azure_client.close()
                 azure_finished = 1
@@ -397,7 +628,6 @@ def check_status():
                         tworows.format('In Progress Time', batch_response.finalizing_at-batch_response.in_progress_at)+\
                         tworows.format('Finalizing Time',batch_response.completed_at-batch_response.finalizing_at)+\
                         tworows.format('Total Time', str(int(runtime/60)) + 'm ' + str(runtime % 60) + 's')
-                        
                 if email:
                     stats += hidden.format('User', email)
                 stats += '</table>'
@@ -480,15 +710,13 @@ def check_status():
                       Bucket=bucket, Key=request.form['key_path'] + '/output/' + request.form['setup_id'] + '/consolidated.csv')
         s3.close()
 
-        hidden_variables 
-        print(hidden_variables)
-        return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar, search_space_message, use_case,
+        return webpages.optimize_form.format(css.style, webpages.header_and_nav, sidebar + '</table>', search_space_message, use_case,
                                              hidden_variables, request.form['separator'], request.form['task_system'], 
                                              request.form['key_path'])
     else:
         hidden_variables += hidden.format('separator', request.form['separator'])+\
                 hidden.format('task_system', request.form['task_system'])
-        return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar,
+        return webpages.waiting.format(css.style, webpages.header_and_nav, sidebar + '</table>',
                                        f'<table> {azure_status} {bedrock_status}</table>',
                                        use_case, next_action, hidden_variables)
 
@@ -587,13 +815,24 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
                          }
                      }
             evaluation_jsonl.append(json.dumps(query))
-    print(len(prompt_ids))
-    print(df.shape)
-    print(len(evaluation_jsonl))
+
     batch_response_id, azure_file_id = ops.azure_batch([evaluation_jsonl])
     azure_file_ids = parameters['azure_file_id'] + ';' + azure_file_id[0]
 
+    jdb = user_db.dynamo_jobs()
+    history = jdb.get_jobs({'email_address': parameters['email_address'],
+                            'setup_id': parameters['setup_id']})
+
+    write_log('optimize (dynamo_jobs().get_jobs): ' + str(history))
+    write_log('optimize (batch_response_id): ' + batch_response_id[0])
+
+    history['iterations'].append(batch_response_id[0])
+    jdb.update(history)
+
+
     n_training_examples = df.shape[0]
+
+
     sidebar = f"<table>" + tworows.format("Evaluator", parameters['evaluator'])+\
             tworows.format("Use Case", use_case)+\
             tworows.format("N Rows", n_training_examples)+ "</table>"
@@ -604,7 +843,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     for k in ['setup_id', 'key_path', 'setup_id', 'evaluator', 'label',
               'n_batches', 'batch_size', 'separator', 'task_system',
-              'filename_ids']:
+              'filename_ids', 'email_address']:
         if k in parameters.keys():
             hidden_variables += hidden.format(k, parameters[k])
         else:
@@ -683,7 +922,7 @@ def bayes(use_case, filename_id, par, stats):
     print('---')
     print(training_df.head())
     print('----------')
-
+    
     print(par['evaluator'])
     if par['evaluator'].lower() == 'accuracy':
         scores_by_prompt, performance_report = accuracy(predictions_df, truth)
@@ -826,11 +1065,67 @@ def accuracy(predictions_df, truth):
 
 
 
+@app.route("/settings", methods=['GET'])
+def settings():
 
+    qc_password = request.cookies.get('quante_carlo_password')
+    if qc_password:
+        qc_email = request.cookies.get('quante_carlo_email')
+        usage_db = user_db.dynamo_usage()
+        jobs_db = user_db.dynamo_jobs()
+
+        usage = usage_db.get_usage({'email_address': qc_email})
+        
+        jobs = jobs_db.get_jobs({'email_address': qc_email})
+
+        return webpages.settings.format(css.style, webpages.navbar, str(usage) +'<br>'+ str(jobs))
+    else:
+        return 'Logged out'
+
+@app.route("/azure", methods=['GET'])
+def azure():
+    text, usage = azure_file(request.args.get('filename_id'))
+
+    return webpages.settings.format(css.style, webpages.navbar, sum(usage['completion_tokens']))
+
+def azure_file(filename_id):
+
+    azure_client = openai.AzureOpenAI(
+            api_key=os.environ['AZURE_OPENAI_KEY'],
+            api_version="2024-10-21",
+            azure_endpoint = os.environ["AZURE_ENDPOINT"]
+            )
+    
+    
+    if filename_id:
+        file = azure_client.files.content(filename_id).text
+        text = []
+        completion_tokens = []
+        prompt_tokens = []
+        total_tokens = []
+        for gen in file.split("\n"):
+            if gen:
+                try:
+                    J = json.loads(gen)
+                except Exception as e:
+                    return gen + "<\n\n" + str(e)
+                usage = J['response']['body']['usage']
+                text.append(J['response']['body']['choices'][0]['message']['content'])
+                completion_tokens.append(usage['completion_tokens'])
+                prompt_tokens.append(usage['prompt_tokens'])
+                total_tokens.append(usage['total_tokens'])
+        azure_client.close()
+        return text, {'completion_tokens': completion_tokens,
+                      'prompt_tokens': prompt_tokens,
+                      'total_tokens': total_tokens}
+    else:
+        write_log('azure_file: problem')
+        
+        return 'problem', 'problem'
 
 @app.route("/rag", methods=['GET'])
 def rage():
-    return webpages.rag_help_page
+    return webpages.rag_help_page.format(css.style, webpages.navbar)
 
 
 
@@ -942,6 +1237,7 @@ def curry_auth(db):
 
 from promptimizer import user_db
 
+
 @app.route("/api", methods=['POST'])
 def api():
 
@@ -956,29 +1252,30 @@ def api():
         if J['API_KEY'] == 'fudge':
             if 'action' in J.keys():
                 db = user_db.dynamo_client()
+                usage_db = user_db.dynamo_usage()
                 if 'parameters' in J.keys():
                     P = J['parameters']
                     if J['action'] == 'create_user':
                         P = J['parameters']
                         return validate(['firstname', 'lastname', 'email_address', 'n_credits', 
                                          'password'], P, db.new_user)
-
                     elif J['action'] == 'authenticate':
                         return validate(['email_address', 'password'], P, curry_auth(db))
-
                     elif J['action'] == 'get_user':
                         return validate(['email_address'], P, db.get_user)
                     elif J['action'] == 'delete_user':
                         return validate(['email_address'], P, db.delete_user)
-               
-
                     elif J['action'] == ['load_prompts', 'save_prompt', 'delete_prompt']:
                         return prompt_manager(P, J['action'])
-
-
+                    elif J['action'] == 'get_usage':
+                        return usage_db.get_usage(P)
+                    elif J['action'] == 'update_usage':
+                        return usage_db.update(P)
+                    else:
+                        return "not a valid action"
+                    
                 else:
                     return "no Parameters in action create user"
-                    
 
             else:
                 return 'No Action', 200
@@ -993,6 +1290,10 @@ def api():
 
 
 
+def write_log(message):
+    print(message)
+    with open("/tmp/promptimizer.log", 'a') as f:
+        f.write('[' + str(datetime.datetime.today()) +'] ' + message + "\n")
 
 
 
