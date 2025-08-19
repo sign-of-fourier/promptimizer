@@ -50,12 +50,12 @@ body {
   overflow: auto;
 }
 .column.middle {
-  border: 1px solid black;
+  /*border: 1px solid black;*/
   width: 70%;
-  background-color: cornsilk;
+  /*background-color: cornsilk;*/
   height: 500px;
   overflow: auto;
-  border-radius: 20px;
+  /*border-radius: 30px;*/
 }
 .column.small {
   width: 5%;
@@ -111,6 +111,14 @@ body {
     box-shadow: 4px 8px 16px rgba(0, 0, 0, 0.15);
 
 }
+.card {
+    background-image: radial-gradient(ghostwhite, ivory, floralwhite);
+    border: 1px solid cadetblue;
+    border-radius: 10px;
+    box-shadow: 4px 8px 16px rgba(0, 0, 0, 0.15);
+
+}
+
 
 img {
     border: 1px solid #e3e3e3;

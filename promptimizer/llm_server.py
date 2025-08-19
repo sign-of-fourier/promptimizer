@@ -1,5 +1,4 @@
-from flask import Flask, send_file, send_from_directory
-from flask import request
+from flask import Flask, send_file, send_from_directory, request, make_response
 import pandas as pd
 import re
 import time
@@ -12,80 +11,21 @@ import datetime
 import random
 import string
 import openai
-from  promptimizer import webpages, css
+from  promptimizer import webpages, css, ops, user_db
+
+import promptimizer.batch_bayesian_optimization as bbo
+import os
+#import llm_ops
+#from matplotlib import pyplot as plt
+import numpy as np
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import WhiteKernel, Matern, DotProduct
+from scipy.stats import ecdf, lognorm
+#from multiprocessing import Pool
+from scipy.stats import norm
+
 
 app = Flask(__name__, static_folder='data')
-
-
-
-
-
-bedrock_model_catalog = {'Nova Micro': 'us.amazon.nova-micro-v1:0',
-                 'Nova Pro': 'us.amazon.nova-micro-v1:0',
-                 'Llama 3.1': 'us.amazon.nova-micro-v1:0',
-                 'Nova-Lite': 'us.amazon.nova-micro-v1:0',
-                 'Nova-Micro': 'us.amazon.nova-micro-v1:0',
-                 'Nova Pro': 'us.amazon.nova-micro-v1:0',
-                 'Mark GPT': 'us.amazon.nova-micro-v1:0',
-                 'Claude-3.5 Haiku': 'us.amazon.nova-micro-v1:0',
-                 'Claude-3 Haiku': 'us.amazon.nova-micro-v1:0',
-                 'Claude-3.5 Sonnet': 'us.amazon.nova-micro-v1:0',
-                 'Claude-3.5 Sonnet-v2': 'us.amazon.nova-micro-v1:0',
-                 'Claude 3 Opus': 'us.amazon.nova-micro-v1:0',
-                 'claude-3-sonnet': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1-405b Instruct': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1-70b Instruct': 'us.amazon.nova-micro-v1:0',
-                 'llama-3.1-8b-instruct': 'us.amazon.nova-micro-v1:0'
-}
-
-azure_model_catalog = {'Chat GPT 4.1 Mini': 'gpt-4.1-mini-batch',
-                 'Chat GPT 4o Mini': 'gpt-4o-mini-batch',
-                 'Chat GPT 4.1': 'gpt-4.1-batch'
-                
-                }
-
-
-
-def kick_off(input_path, output_path, job_id, model):
-
-    print('kick_off', input_path, output_path, job_id, model)
-
-    boto3_bedrock = boto3.client(service_name="bedrock", region_name='us-east-2', 
-                                 aws_access_key_id=os.environ['AWS_ACCESS_KEY'], 
-                                 aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-
-
-   # status = [boto3_bedrock.get_model_invocation_job(jobIdentifier=j)['status'] for j in jobArns]
-
-
-    inputDataConfig=({
-        "s3InputDataConfig": {
-            "s3Uri": input_path,
-            "s3BucketOwner": "344400919253"
-        }
-    })
-
-    outputDataConfig=({
-        "s3OutputDataConfig": {
-            's3Uri': output_path,
-            "s3BucketOwner": "344400919253"
-        }
-    })
-    try:
-        response=boto3_bedrock.create_model_invocation_job(
-            roleArn = 'arn:aws:iam::344400919253:role/bedrock_batch',
-            modelId = bedrock_model_catalog[model],
-            jobName=job_id + '-' + re.sub(' ', '-', model.lower()),
-            inputDataConfig=inputDataConfig,
-            outputDataConfig=outputDataConfig
-        )
-        jobArn = response.get('jobArn')
-        boto3_bedrock.close()
-        return jobArn
-    except Exception as e:
-        print(e)
-        return -1
-
 
 
 def select_model(model_catalog):
@@ -115,7 +55,7 @@ def prompt_preview():
  
     use_case = request.args.get('use_case')
     prompt_library = import_module('promptimizer.prompt_library.'+use_case)
-    model_section = select_model(bedrock_model_catalog) + select_model(azure_model_catalog)
+    model_section = select_model(ops.bedrock_model_catalog) + select_model(ops.azure_model_catalog)
     use_case_specific = hidden.format('separator', prompt_library.separator)+\
             hidden.format('task_system', prompt_library.task_system)
 
@@ -125,7 +65,7 @@ def prompt_preview():
 
     return webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, use_case, 
                                              prompt_library.writer_system, prompt_library.writer_user, 
-                                             prompt_library.label_name, use_case_specific, model_section)
+                                             prompt_library.label_name, use_case_specific, model_section, webpages.email_and_password)
 
 
 hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
@@ -134,101 +74,148 @@ bucket = 'sagemaker-us-east-2-344400919253'
 
 
 
+def model_and_hidden(X, use_case):
 
-def batchrock(use_case, jsonl, models, random_string, key_path):
+    use_case_specific = hidden.format('separator', X['separator'])+\
+            hidden.format('task_system', X['task_system'])
 
-    jobArns = []
-    try:
-        client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                              aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-    except Exception as e:
-        print('Failed to get boto3')
-        return e
+    if use_case == 'defect_detector':
+        use_case_specific += webpages.demonstrations_input
 
-
-    for model_name in models.keys():
-        if (models[model_name] >= 100) & (model_name in bedrock_model_catalog.keys()):
-            filename = re.sub(' ', '-', model_name.lower()) + '.jsonl'
-            #filename = f"{random_string}/{model_name}.jsonl"
-            client.put_object(Body="\n".join(jsonl[:models[model_name]]),
-                              Bucket=bucket, Key=key_path + '/input/' + random_string + '/' + filename)
-
-            jobArns.append(kick_off('s3://' + bucket + '/' + key_path + '/input/' + random_string + '/' + filename, 
-                                    's3://' + bucket + '/' + key_path + '/output/' + random_string + '/', random_string, 
-                                    model_name))
-
-            with open('/tmp/' + random_string + '-' + model_name + '.jsonl', 'w') as f:
-                f.write("\n".join(jsonl))
-            client.close()
-        elif (models[model_name] > 0):
-            if model_name not in azure_model_catalog.keys():
-                print (f'ERROR unkown model: {model_name}.', models[model_name])
-            else:
-                print('Azure Deployment', model_name)
-
-    return jobArns
+    return use_case_specific, select_model(ops.bedrock_model_catalog) + select_model(ops.azure_model_catalog)
 
 
 
-def make_jsonl(prompt_system, prompt_user, model, temp, n_records, demo_path = None):
 
-    if demo_path:
-        demo_df = pd.read_csv(demo_path)
-        demo_true = demo_df[demo_df['output'] == True]
-        demo_false = demo_df[demo_df['output'] == False]
-        demonstrations = True
+@app.route("/user_library", methods=['POST'])
+def user_library():
+
+    user_library, status = prompt_manager({'email_address': request.form['email_address'],
+                                           'password': request.form['password']}, 'load_prompt')
+
+    if status == 200:
+        selection = user_library[user_library['prompt_id'] == int(request.form['prompt_id'])]
+        if selection.shape[0] != 1:
+            return 'Problem with user prompt library'
+
+        use_case_specific, model_section = model_and_hidden({'separator': selection['separator'].iloc[0],
+                                                             'task_system': selection['task_system'].iloc[0]}, selection['use_case'].iloc[0])
+        use_case_specific += hidden.format('password', request.form['password']) + hidden.format('email_address', request.form['email_address'])
+
+
+        status_message = ' &nbsp; Prompt ' + request.form['prompt_id'] + ' Loaded'
     else:
-        demonstrations = False
+        status_message = user_library
 
-    jsonl = []
-    for i in range(n_records):
-        if demonstrations:
-            if model in [azure_model_catalog[m] for m in azure_model_catalog.keys()]:
-                samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
-                        [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
-            else:
-                samples = [{"type": "image", "source": 
-                            {"type": "base64", "media_type": "image/jpeg",
-                             "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_true['input'].sample(2)] + \
-                          [{"type": "image", "source":
-                            {"type": "base64", "media_type": "image/jpeg",
-                             "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_false['input'].sample(2)] 
-        else:
-            samples = []
+    response = make_response(webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, selection['use_case'].iloc[0],
+                                                               selection['writer_system'].iloc[0],
+                                                               selection['writer_user'].iloc[0], selection['label'].iloc[0], 
+                                                               use_case_specific, model_section, status_message))
+    if status == 200:
+        response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=1800)
+        response.set_cookie('quante_carlo_password', request.form['password'], max_age=1798)
 
-        if model != 'bedrock':
-            query = {'custom_id': 'JOB_{}_{}'.format(model, i),
-                         'method': 'POST',
-                         'url': '/chat/completions',
-                         'body': {
-                             'model': model,
-                             'temperature': temp,
-                             'messages': [
-                                 {'role': 'system', 'content': prompt_system},
-                                 {'role': 'user', 'content': [{"type": "text", "text": prompt_user}] + samples}
-                                ]
-                            }
-                        }
-
-        else:
-            query = {"recordId":  "JOB_bedrock_RECORD_{}".format(i),
-                         "modelInput": {"schemaVersion": "messages-v1",
-                                        "system": [{"text": prompt_system}],
-                                        "messages": [{"role": "user",
-                                                      "content": [{"text": "{}".format(prompt_user)} ] }] + samples ,
-                                        "inferenceConfig":{"maxTokens": 2048, "topP": .9,"topK": 90, "temperature": temp }
-                                        }
-                        }
-        jsonl.append(json.dumps(query))
-
-    return jsonl
+    return response
 
 
+@app.route("/load_prompt", methods=['POST', 'GET'])
+def load_prompt():
+
+
+    email_address = request.cookies.get('quante_carlo_email')
+    password = request.cookies.get('quante_carlo_password')
+    if (email_address is not None) & (password is not None):
+
+        user_library, status = prompt_manager({'email_address': email_address,
+                                               'password': password}, 'load_prompt')
+    elif ('email_address' in request.form.keys()) & ('password' in request.form.keys()):
+        user_library, status = prompt_manager(request.form, 'load_prompt')
+        email_address = request.form['email_address']
+        password = request.form['password']
+    else:
+        status = -1
+
+    if status == 200:
+        user_prompts = ''
+        hidden_variables = hidden.format('email_address', email_address) + hidden.format('password', password)
+
+        for pid, user, system, u in zip(user_library['prompt_id'], user_library['writer_user'], user_library['writer_system'],
+                                        user_library['use_case']):
+
+            user_prompts += five_radio(pid, user, system, u)
+
+        response = make_response(webpages.load_prompt.format(css.style, webpages.header_and_nav,  user_prompts,hidden_variables))
+
+        response.set_cookie('quante_carlo_email', email_address, max_age=1800)
+        response.set_cookie('quante_carlo_password', password, max_age=1798)
+
+        return response
+    else:
+        return webpages.sign_in.format(css.style, webpages.header_and_nav, 'Timed out')
 
 
 @app.route("/enumerate_prompts", methods=['POST'])
 def enumerate_prompts():
-    
+   
+
+    use_case = request.args.get('use_case', '')
+    print(request.form.keys())
+
+    if request.form['submit'] == 'Save':
+
+        S = {'use_case': [use_case], 'setup_id': 'None'}
+
+        email_address = request.cookies.get('quante_carlo_email')
+        password = request.cookies.get('quante_carlo_password')
+        for k in ['writer_user', 'writer_system', 'separator', 'label',
+                  'task_system', 'evaluator']:
+            S[k] = [request.form[k]]
+
+        save_status, status = prompt_manager({'email_address': request.form['email_address'], 
+                                              'password': request.form['password'], 'new_prompt': S}, 'save_prompt')
+        
+        use_case_specific, model_section = model_and_hidden(request.form, use_case)
+ 
+        if status == 209:
+            save_status = webpages.email_and_password + save_status
+        else:
+            use_case_specific += hidden.format('email_address', request.form['email_address'])+\
+                    hidden.format('password', request.form['password'])
+
+        response =  make_response(webpages.enumerate_prompts.format(css.style, webpages.header_and_nav, use_case,
+                                                 request.form['writer_system'],
+                                                 request.form['writer_user'], request.form['label'], use_case_specific, model_section, save_status))
+        if status != 209:
+            response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=1800)
+            response.set_cookie('quante_carlo_password', request.form['password'], max_age=1800)
+
+        return response
+
+    elif request.form['submit'] == 'Load':
+
+
+        user_library, status = prompt_manager({'email_address': request.form['email_address'],
+                                               'password': request.form['password']}, 'load_prompt')
+
+        user_prompts = ''
+        print(user_library)    
+        hidden_variables = ''
+        for v in ['email_address', 'password']:
+            hidden_variables += hidden.format(v,request.form[v])
+
+        for pid, user, system, u in zip(user_library['prompt_id'], user_library['writer_user'], user_library['writer_system'],
+                                        user_library['use_case']):
+
+            user_prompts += five_radio(pid, user, system, u)
+        
+        response = make_response(webpages.load_prompt.format(css.style, webpages.header_and_nav,  user_prompts,hidden_variables))
+        if status != 209:
+            response.set_cookie('username', request.form['email_address'], max_age=1800)
+
+        return response
+
+
+
     if 'demonstrations' in request.files.keys():
         if request.files['demonstrations'].filename:
             demo_path = '/tmp/demonstrations.csv'
@@ -239,10 +226,15 @@ def enumerate_prompts():
     else:
         demo_path = ''
 
-    use_case = request.args.get('use_case', '')
-    password = request.form['password']
-    if password != os.environ['APP_PASSWORD']:
-        return 'Wrong password ... wah wah'
+
+    auth = authenticate(request.form)
+    if auth != 'Approved':
+        return 'wrong credentials... wah, wah ...'
+
+    print('Auth', auth)
+    #password = request.form['password']
+    #if password != os.environ['APP_PASSWORD']:
+    #    return 'Wrong password ... wah wah'
     prompt_user = request.form['writer_user']
     prompt_system = request.form['writer_system']
     n_batches = request.form['n_batches']
@@ -261,12 +253,12 @@ def enumerate_prompts():
         if 'model' == k[:5]:
             n = int(request.form[k])
             if n > 0:
-                if k[6:] in azure_model_catalog.keys():
-                    azure_jsonls.append(make_jsonl(prompt_system, prompt_user, 
-                                                    azure_model_catalog[k[6:]], .9, n, demo_path))
+                if k[6:] in ops.azure_model_catalog.keys():
+                    azure_jsonls.append(ops.make_jsonl(prompt_system, prompt_user, 
+                                                       ops.azure_model_catalog[k[6:]], .9, n, demo_path))
                     azure_models_enumerated[k[6:]] = n
 
-                elif k[6:] in bedrock_model_catalog.keys():
+                elif k[6:] in ops.bedrock_model_catalog.keys():
                     if int(request.form[k]) > bedrock:
                         bedrock = n
                     bedrock_models_enumerated[k[6:]] = n
@@ -284,10 +276,10 @@ def enumerate_prompts():
 
 
     if bedrock:
-        bedrock_jsonl = make_jsonl(prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
+        bedrock_jsonl = ops.make_jsonl(prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
         print(random_string)
         print('batchrock', len(bedrock_jsonl[0]))
-        jobArns = batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
+        jobArns = ops.batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
     else:
         print('no bedrock')
         jobArns = []
@@ -295,7 +287,7 @@ def enumerate_prompts():
 
     if len(azure_jsonls) > 0:
         print('azure batch')
-        job_ids, azure_file_ids = azure_batch(azure_jsonls)
+        job_ids, azure_file_ids = ops.azure_batch(azure_jsonls)
     else:
         job_ids = []
         azure_file_ids = []
@@ -324,6 +316,14 @@ def enumerate_prompts():
 
 tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
 
+def five_radio(prompt_id, user, system, use_case):
+
+    return f"""<tr>
+<td><input type=\"radio\" name=\"prompt_id\" id=\"prompt_id-{prompt_id}\" value=\"{prompt_id}\"></td>
+<td><label for="prompt_id-{prompt_id}">{prompt_id}</label></td>
+<td>{user}</td><td>{system}</td><td>{use_case}</td>
+</tr>
+"""
 threerows = "<tr><td><b>{}</b></td><td>{}</td><td>{}</td></tr>\n"
 
 # optimize_form
@@ -339,9 +339,13 @@ def check_status():
     search_space_message =  "The search space has been created. Now it's time to evaluate the prompts (Bayesian Optimization Step)."
     use_case = request.args.get('use_case')
     next_action = request.args.get('next_action')
+    email = request.cookies.get('quante_carlo_email')
     sidebar = "<table>" + tworows.format('Use Case', use_case) + \
-            tworows.format('Evaluator', request.form['evaluator']) + '</table>'
+            tworows.format('Evaluator', request.form['evaluator']) 
     #models = request.form['models']
+    if email:
+        sidebar += tworows.format('User', email) 
+    sidebar += '</table>'
     azure_prompts = []
     bedrock_prompts = []
 
@@ -385,13 +389,19 @@ def check_status():
                 azure_client.close()
                 azure_finished = 1
             else:
+                #print('usage', azure_client.batches)
+                email = request.cookies.get('email_address')
                 azure_client.close()
                 runtime = batch_response.completed_at-batch_response.created_at
                 stats = '<table>' + tworows.format('Validation Time', batch_response.in_progress_at-batch_response.created_at)+\
                         tworows.format('In Progress Time', batch_response.finalizing_at-batch_response.in_progress_at)+\
                         tworows.format('Finalizing Time',batch_response.completed_at-batch_response.finalizing_at)+\
-                        tworows.format('Total Time', str(int(runtime/60)) + 'm ' + str(runtime % 60) + 's')+\
-                        "</table>"
+                        tworows.format('Total Time', str(int(runtime/60)) + 'm ' + str(runtime % 60) + 's')
+                        
+                if email:
+                    stats += hidden.format('User', email)
+                stats += '</table>'
+
                 print('calling bayes', request.form['label'])
                 return bayes(use_case, batch_response.output_file_id, request.form, stats)
         else:
@@ -484,20 +494,6 @@ def check_status():
 
 
 
-
-import promptimizer.batch_bayesian_optimization as bbo
-import os
-#import llm_ops
-#from matplotlib import pyplot as plt
-import numpy as np
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import WhiteKernel, Matern, DotProduct
-from scipy.stats import ecdf, lognorm
-#from multiprocessing import Pool
-from scipy.stats import norm
-
-
-
 def get_prompts(prompt_key, job_ids, models):
 
      s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
@@ -534,7 +530,7 @@ def pre_optimize():
      if len(prompts) < 1:
          return "Sub directory problem"
 
-     E = get_embeddings(prompts)
+     E = ops.get_embeddings(prompts)
      print('done with embeddings')
 
      X = {}
@@ -576,6 +572,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     evaluation_jsonl = []
     for prompt_id in prompt_ids:
         prompt = prompts[prompt_id]
+        print('P id: ', prompt_id)
         for i, text in enumerate(df['input']):
             query = {'custom_id': 'PROMPT_{}_{}'.format(prompt_id, i),
                      'method': 'POST',
@@ -593,7 +590,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     print(len(prompt_ids))
     print(df.shape)
     print(len(evaluation_jsonl))
-    batch_response_id, azure_file_id = azure_batch([evaluation_jsonl])
+    batch_response_id, azure_file_id = ops.azure_batch([evaluation_jsonl])
     azure_file_ids = parameters['azure_file_id'] + ';' + azure_file_id[0]
 
     n_training_examples = df.shape[0]
@@ -624,66 +621,6 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     return webpages.check_status_form.format(css.style, webpages.header_and_nav, sidebar + stats, use_case, 
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
     
-
-
-def azure_batch(jsonls):
-
-    job_ids = []
-    file_ids = []
-    for i, jsonl in enumerate(jsonls):
-        filename = '/tmp/job_{}.jsonl'.format(i)
-        with open(filename, 'w') as f:
-            f.write("\n".join(jsonl))
-        #jobArns.append(azure_batch('/tmp/jobs.jsonl')]
-        azure_client = openai.AzureOpenAI(
-                api_key=os.environ['AZURE_OPENAI_KEY'],
-                api_version="2024-10-21",
-                azure_endpoint = os.environ["AZURE_ENDPOINT"]
-                )
-
-        file = azure_client.files.create(
-                file=open(filename, "rb"),
-                purpose="batch"
-                )
-
-        batch_response = azure_client.batches.create(
-                input_file_id=file.id,
-                endpoint="/chat/completions",
-                completion_window="24h",
-                )
-        
-        print(batch_response.id)
-        job_ids.append(batch_response.id)
-        file_ids.append(file.id)
-        azure_client.close()
-
-    return job_ids,file_ids
-
-
-def get_embeddings(input_text):
-
-    client = boto3.client(service_name="bedrock-runtime", region_name='us-east-2',
-                          aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-
-    model_id = "amazon.titan-embed-text-v2:0"
-
-    accept = "application/json"
-    content_type = "application/json"
-    E = []
-    for text in input_text:
-        body = json.dumps({'inputText': text,
-                           'dimensions': 512})
-        response = client.invoke_model(
-            body=body, modelId=model_id, accept=accept, contentType=content_type
-        )
-
-        response_body = json.loads(response.get('body').read())
-
-        E.append(','.join([str(x) for x in response_body['embedding']]))
-    return E
-
-
 
 def bayes(use_case, filename_id, par, stats):
 
@@ -734,12 +671,13 @@ def bayes(use_case, filename_id, par, stats):
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
                                    'record_id': record_ids,
                                    'prediction': predictions})
-    print('get training data')
+    predictions_df.to_csv('s3://' + bucket + '/' + par['setup_id'] + '/predictions/', index=False)
+    print('get training data', par['key_path'], par['setup_id'])
     #training_df = json.loads(pd.read_csv('s3://' + bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id']).to_json())
     training_df = pd.read_csv('s3://' + bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
     truth = training_df['output']
 
-    print(predictions_df['prediction'].unique())
+    print(predictions_df['prompt_id'].unique())
     print('-_-_-_-_-_-_-')
     print(predictions_df.head())
     print('---')
@@ -919,5 +857,143 @@ def debug(name):
 def send_report(filename):
 
     return send_from_directory(app.static_folder,  filename)
+
+
+def prompt_manager(P, action):
+
+    if ('email_address' in P.keys()) &('password' in P.keys()):
+        auth  = authenticate(P)
+        if auth == 'Approved':
+
+            try:
+                df = pd.read_csv('s3://' + bucket+'/users/{}/saved_prompts.csv'.format(P['email_address']))
+            except Exception as e:
+                #return 'file doesnt exist', -1
+                df = user_db.initial_df
+
+            print(action)
+            if action == 'save_prompt':
+                print(df)
+                print("\n")
+                print(P['new_prompt'])
+                                
+                new_prompt = P['new_prompt']
+                new_prompt['prompt_id'] = df['prompt_id'].max()+1
+                new_prompt['save_date'] = datetime.datetime.today()
+                new_df = pd.DataFrame(new_prompt)
+                for c in df.columns:
+                    if c not in new_df.columns:
+                        return c + ' is missing: prompt_manager', 209
+                new_df
+                if len(new_df.columns) != len(df.columns):
+                    return 'prompt and metadata wrong size: prompt manager', 209
+                pd.concat([df, new_df]).to_csv('s3://' + bucket+'/users/{}/saved_prompts.csv'.format(P['email_address']), index=False)
+                return str(df.shape), 200
+
+            elif action == 'load_prompt':
+                return df, 200
+
+            elif action == 'delete_prompt':
+                df = df[df['prompt_id']] == P['prompt_id']
+                df.to_csv('s3://' + bucket+'/users/{}/saved_prompts.json'.format(P['email_address']), index=False)
+                return df.shape, 200
+            else:
+                return 'bad action', 209
+        else:
+            return auth, 209
+
+    else:
+
+        return "prompt manager: need email_address and passwor and passwordd", 209
+
+
+def validate(keys, D, f):
+
+    for k in keys:
+        if k not in D.keys():
+            return f.__name__+ ': missing ' + k, 200
+    return  f(D)
+
+
+
+def authenticate(P):
+    db = user_db.dynamo_client()
+    
+    user_info = db.get_user(P)
+    if user_info:
+        if P['password'] == user_info['password']:
+            return 'Approved'
+        else:
+            return 'Password Failure'
+    else:
+        return 'No such user'
+
+def curry_auth(db):
+
+    def authenticate_db(P):
+        user_info = db.get_user(P)
+
+        if P['password'] == user_info['password']:
+            return 'Approved'
+        else:
+            return 'Password Failure'
+
+    return authenticate_db
+
+from promptimizer import user_db
+
+@app.route("/api", methods=['POST'])
+def api():
+
+    try:
+        J = request.get_json()
+    except Exception as e:
+        print(str(e))
+        print('EXCEPTION')
+        return str(e), 200
+
+    if 'API_KEY' in J.keys():
+        if J['API_KEY'] == 'fudge':
+            if 'action' in J.keys():
+                db = user_db.dynamo_client()
+                if 'parameters' in J.keys():
+                    P = J['parameters']
+                    if J['action'] == 'create_user':
+                        P = J['parameters']
+                        return validate(['firstname', 'lastname', 'email_address', 'n_credits', 
+                                         'password'], P, db.new_user)
+
+                    elif J['action'] == 'authenticate':
+                        return validate(['email_address', 'password'], P, curry_auth(db))
+
+                    elif J['action'] == 'get_user':
+                        return validate(['email_address'], P, db.get_user)
+                    elif J['action'] == 'delete_user':
+                        return validate(['email_address'], P, db.delete_user)
+               
+
+                    elif J['action'] == ['load_prompts', 'save_prompt', 'delete_prompt']:
+                        return prompt_manager(P, J['action'])
+
+
+                else:
+                    return "no Parameters in action create user"
+                    
+
+            else:
+                return 'No Action', 200
+        else:
+            return 'Wrong Password', 200
+    else:
+        return 'No Password', 200
+
+
+    return '', 204
+
+
+
+
+
+
 
 
