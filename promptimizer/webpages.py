@@ -101,11 +101,12 @@ waiting = """<html><style>{}</style>
 <body>
 <div class="column left">{}</div>
 <div class="column middle">
+<div class="card">
 {}
-<br>
-<form action="/check_status?use_case={}&next_action={}" method="POST"">
+<form action="/check_status?use_case={}&next_action={}" method="POST">
 {}
 <input type="submit" Value="Check Again"></input>
+</form>
 </form>
 </div>
 <div class="column small"></div>
@@ -189,6 +190,7 @@ check_status_form = """<html>
 </style>
 {}
 <br><body>
+<div class="column row"></div>
 <div class="column left">
 {}
 </div>
@@ -238,7 +240,20 @@ separator_and_task_system_input = """    <tr>
     </tr>
 
 """
+email_and_password = """    <tr>
+        <td></td>
+        <td>Email Address</td>
+        <td><input name="email_address" type="text"></input>
+        <td></td>
+    </tr>
 
+    <tr>
+        <td></td>
+        <td>Password</td>
+        <td><input name="password" type="text"></input>
+        <td></td>
+    </tr>
+"""
 
 enumerate_prompts =  """
 <html>
@@ -326,27 +341,18 @@ enumerate_prompts =  """
         </td>
         <td></td>
     </tr>
-    <tr>
-        <td></td>
-        <td>Email Address</td>
-        <td><input name="email_address" type="text"></input>
-        <td></td>
-    </tr>
-
-    <tr>
-        <td></td>
-        <td>Password</td>
-        <td><input name="password" type="text"></input>
-        <td></td>
-    </tr>
+    {}
     <input type="hidden" name="batch_size" value="4"></input>
     <input type="hidden" name="n_batches" value="4096"></input>
     <tr>
         <td></td>
         <td></td>
-        <td><input type=submit value=submit></input>
+        <td><input type="submit" name="submit" value="Submit"></input>
+        <input type="submit" name="submit" value="Save"></input>
+        <input type="submit" name="submit" value="Load"></input>
         <td></td>
     </tr>
+
  </table>
  </div>
 </div>
@@ -354,7 +360,44 @@ enumerate_prompts =  """
 <div class="column row"></div>
 """
 
+load_prompt = """
+<html>
+<title>Promptimizer by Quante Carlo</title>
+<style>
+{}
+</style>
+<body>
+{}
+<div class="column row"></div>
+<div class="column small"></div>
+<div class="column middle_big">
+<div class="column shaded">
+<form action="/user_library" method="POST">
 
+<table>
+    <tr>
+        <td></td>
+        <td> ID </td>
+        <td> System </td>
+        <td> User </td>
+        <td> <b>Use Case</b></td>
+    </td>
+    {}
+    <tr>
+      <td></td>
+      <td></td>
+      <td colspan=2><input type="submit" name="submit" value="Select"></input>
+      </td></td>
+    </tr>
+</table>
+</div>
+{}
+</form>
+</div>
+<div class="column small"></div>
+<div class="column row"></div>
+</html>
+"""
 
 header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 <div class="header">
@@ -373,24 +416,42 @@ header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 <a href="/">Signup</a>
 <a href="https://quantecarlo.com">Quante Carlo</a>
 <a href="/rag">How to prepare RAG</a>
+<a href="/load_prompt">Load Prompt</a>
 
 </div>
 """
 
-sign_up = """<html>
+sign_in = """<html>
 <style>
 {}
 </style>
 <body>
 {}
+<div class="column small"></div>
 
-<form action="signup">
+<div class="column middle_big">
+
+
+<div class="column shaded">
+<form action="/load_prompt" method="POST">
 <table>
     <tr>
         <td>Email</td>
-        <td> type="text></td>
+        <td><input type="text" name="email_address" value=""></input></td>
+    </tr>
+    <tr>
+        <td>Password</td>
+        <td><input type="text" name="password"></input></td>
+    </tr>
+    <tr>
+      <td>
+         <input type="submit" name="submit" value="submit"></input>
+      </td>
     </tr>
 </table>
+</div>
+</div>
+<div class="column small"></div>
 </form>
 
 </html>
@@ -582,4 +643,8 @@ use_case_selector = """
 </html>
 
 """
+
+
+
+
 
