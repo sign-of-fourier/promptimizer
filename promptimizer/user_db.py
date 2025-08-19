@@ -22,7 +22,7 @@ initial_df = pd.DataFrame({'prompt_id': [0],
 
 class dynamo_client:
     def __init__(self):
-        dynamodb = boto3.resource('dynamodb', region='us-east-2')
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
 
         self.db = dynamodb.Table('Users')
       #  self.x_map = {'customer_id': ':cust',
