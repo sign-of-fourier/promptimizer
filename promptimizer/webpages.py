@@ -1,5 +1,13 @@
 rag_help_page = """<html>
-<title>Quante Carlo: RAG Instructions</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<style>
+{}
+</style>
+{}
+
+
 <h1>RAG File Preparation Instructions</h1>
 <body>
 <p>
@@ -349,7 +357,6 @@ enumerate_prompts =  """
         <td></td>
         <td><input type="submit" name="submit" value="Submit"></input>
         <input type="submit" name="submit" value="Save"></input>
-        <input type="submit" name="submit" value="Load"></input>
         <td></td>
     </tr>
 
@@ -359,10 +366,47 @@ enumerate_prompts =  """
 <div class="column small"></div></form>
 <div class="column row"></div>
 """
+load_job = """
+
+<html>
+<style>
+{}
+</style>
+<body>
+{}
+<div class="column row"></div>
+<div class="column small"></div>
+<div class="column middle_big">
+<div class="column shaded">
+<form action="/user_jobs" method="POST">
+
+<table>
+    <tr>
+        <td></td>
+        <td> ID </td>
+        <td> <b>Setup Id </b></td>
+        <td> User Prompt </td>
+    </td>
+    {}
+    <tr>
+      <td></td>
+      <td></td>
+      <td colspan=2><input type="submit" name="submit" value="Select"></input>
+      </td></td>
+    </tr>
+</table>
+</div>
+{}
+</form>
+</div>
+<div class="column small"></div>
+<div class="column row"></div>
+</html>
+
+"""
 
 load_prompt = """
 <html>
-<title>Promptimizer by Quante Carlo</title>
 <style>
 {}
 </style>
@@ -398,6 +442,56 @@ load_prompt = """
 <div class="column row"></div>
 </html>
 """
+
+
+navbar = """
+
+<title>Promptimizer by Quante Carlo</title>
+<div class="header">
+    <p align="right">
+    <table>
+        <tr><td><h1>Promptimizer</h1></td>
+            <td> &nbsp; &nbsp; &nbsp; &nbsp; </td><td rowspan=2>
+            <img src="https://static.wixstatic.com/media/614008_6006e77a45db4c8ea97da77bc26cca7c~mv2.jpg/v1/fill/w_123,h_123,al_c,q_80,usm_0.66_1.00_0.01,enc_auto/qc%20logo.jpg"></img></p>
+            </td>
+        </tr>
+        <tr><td align="right">by Quante Carlo</td><td> &nbsp; </td>
+        </tr>
+    </table>
+    </p>
+</div>
+
+
+
+<div class="navbar">
+
+    <a href="/">Home</a>
+    <a href="/">Signup</a>
+    <div class="subnav">
+        <button class="subnavbtn">User Library</a><i class="fa fa-caret-down"></i></button>
+        <div class="subnav-content">
+            <a href="/load_prompt">Load Prompt</a>
+            <a href="/load_job">Load Job</a>
+        </div>
+    </div>
+
+    <div class="subnav">
+
+        <button class="subnavbtn">Documentation</a><i class="fa fa-caret-down"></i></button>
+        <div class="subnav-content">
+            <a href="/how-it-works">How it works</a>
+            <a href="/rag">How to prepare RAG</a>
+            <a href="https://quantecarlo.com">Quante Carlo</a>
+            <a href="/blog">Blog</a>
+        </div>
+    </div>
+    <a href="/settings">Settings</a>
+</div>
+
+
+"""
+
+
 
 header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 <div class="header">
@@ -645,6 +739,17 @@ use_case_selector = """
 """
 
 
-
+settings = """<htnl>
+<style>
+{}
+</style>
+{}
+<h2>Settings</h2>
+<div class="column small"></div>
+<div class="column middle_big">
+{}
+</div>
+<div class="column small"></div>
+"""
 
 
