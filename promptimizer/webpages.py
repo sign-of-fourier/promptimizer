@@ -467,6 +467,7 @@ navbar = """
 
     <a href="/">Home</a>
     <a href="/">Signup</a>
+    <a href='/buy_credits'>Buy Credits</a>
     <div class="subnav">
         <button class="subnavbtn">User Library</a><i class="fa fa-caret-down"></i></button>
         <div class="subnav-content">
@@ -527,7 +528,7 @@ sign_in = """<html>
 
 
 <div class="column shaded">
-<form action="/load_prompt" method="POST">
+<form action="{}" method="POST">
 <table>
     <tr>
         <td>Email</td>

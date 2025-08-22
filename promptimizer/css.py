@@ -36,7 +36,6 @@ body {
   overflow: hidden;
   background-color: #0f314d;
 }
-
 .navbar a {
   float: left;
   font-size: 16px;
@@ -46,7 +45,6 @@ body {
   text-decoration: none;
 }
 
-/* The subnavigation menu */
 .subnav {
   float: left;
   overflow: hidden;
@@ -122,10 +120,13 @@ body {
   /*border-radius: 30px;*/
 }
 .column.small {
+  border: 1px solid purple;
   width: 5%;
   bacground-color: aliceblue;
 }
-
+.column.tenth {
+  width: 10%;
+}
 .column.middle_top {
 
   border: 0px;
@@ -148,7 +149,10 @@ body {
   overflow: auto;
   width: 100%;
 }
-
+.column.fifth{
+  border: 0px solid green;
+  width: 20%;
+}
 
 .column.middle_big {
   width: 90%;
@@ -180,7 +184,7 @@ body {
     border: 1px solid cadetblue;
     border-radius: 10px;
     box-shadow: 4px 8px 16px rgba(0, 0, 0, 0.15);
-
+    text-align: center;
 }
 
 
