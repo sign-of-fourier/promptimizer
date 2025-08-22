@@ -28,8 +28,8 @@ from boto3.dynamodb.conditions import Key
 class dynamo_jobs:
     def __init__(self):
         dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
-        self.db = dynamodb.Table('debug')
-        self.keys = ['email_address', 'setup_id', 'meta_user',  'meta_system']
+        self.db = dynamodb.Table('Jobs2')
+        self.keys = ['email_address', 'setup_id', 'key_path', 'meta_user', 'use_case', 'meta_system']
     def initialize(self, P):
 
         job_id = self.max_job_id(P)
@@ -42,45 +42,48 @@ class dynamo_jobs:
             else:
                 print('missing ' + n)
                 return 'missing ' + n
-
         return self.db.put_item(Item = X)
 
     def max_job_id(self, P):
         J = self.get_jobs(P)
-        if len(J['setup_id']) < 1:
-            return 0
+        if J:
+            if len(J['setup_id']) < 1:
+                return 0
+            else:
+                return max(J['job_id'])
         else:
-            return max(J['job_id'])
+            return 0
 
     def get_jobs(self, P):
+        if 'setup_id' in P.keys():
+            response = self.db.query(
+                    KeyConditionExpression=Key('email_address').eq(P['email_address']) &
+                    Key('setup_id').eq(P['setup_id'])
+                    )
+            return response.get('Items')
+        else:
+            response = self.db.query(
+                    KeyConditionExpression=Key('email_address').eq(P['email_address']) &
+                    Key('setup_id').between('0000000000000000', 'zzzzzzzzzzzzzzzz')
+                    )
 
-        response = self.db.query(
-                KeyConditionExpression=Key('email_address').eq(P['email_address']) 
-                )
-        items = response.get('Items')
-        X = {}
-        keys = self.keys + ['transaction_timestamp', 'iterations']
-        for k in keys:
-            X[k] = []
-        for item in items:
-            if 'setup_id' in P.keys():
-                if item['setup_id'] == P['setup_id']:
-                    return item
-
+            items = response.get('Items')
+            X = {}
+            keys = self.keys + ['transaction_timestamp', 'iterations', 'job_id']
             for k in keys:
-                if k in item.keys():
-                    X[k].append(item[k])
-                else:
-                    print(k + ' not in ')
-                    print(item.keys())
-        return X
+                X[k] = []
+            for item in items:
+                print('Item', item)
+                for k in keys:
+                    if k in item.keys():
+                        X[k].append(item[k])
+            return X
 
     def update(self, P):
 
         X = { 'transaction_timestamp':  str(dt.now())}
 
-        for k in ['email_address', 'setup_id',
-                  'iterations']:
+        for k in self.keys:
             if k not in P.keys():
                 return 'jobs::update missing ' + k
             X[k] = P[k]

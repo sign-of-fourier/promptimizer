@@ -357,7 +357,6 @@ enumerate_prompts =  """
         <td></td>
         <td><input type="submit" name="submit" value="Submit"></input>
         <input type="submit" name="submit" value="Save"></input>
-        <input type="submit" name="submit" value="Load"></input>
         <td></td>
     </tr>
 
