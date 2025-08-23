@@ -1,6 +1,12 @@
-style="""* {
+style="""
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<style>
+
+* {
   box-sizing: border-box;
 }
+
 
 body {
   margin: 1;
@@ -36,7 +42,6 @@ body {
   overflow: hidden;
   background-color: #0f314d;
 }
-
 .navbar a {
   float: left;
   font-size: 16px;
@@ -46,13 +51,11 @@ body {
   text-decoration: none;
 }
 
-/* The subnavigation menu */
 .subnav {
   float: left;
   overflow: hidden;
 }
 
-/* Subnav button */
 .subnav .subnavbtn {
   font-size: 16px;
   border: none;
@@ -96,13 +99,6 @@ body {
   display: block;
 }
 
-
-
-
-
-
-
-/* Create three unequal columns that floats next to each other */
 .column {
   float: left;
   padding: 10px;
@@ -122,10 +118,13 @@ body {
   /*border-radius: 30px;*/
 }
 .column.small {
+  border: 0px solid purple;
   width: 5%;
   bacground-color: aliceblue;
 }
-
+.column.tenth {
+  width: 10%;
+}
 .column.middle_top {
 
   border: 0px;
@@ -148,7 +147,10 @@ body {
   overflow: auto;
   width: 100%;
 }
-
+.column.fifth{
+  border: 0px solid green;
+  width: 20%;
+}
 
 .column.middle_big {
   width: 90%;
@@ -180,7 +182,7 @@ body {
     border: 1px solid cadetblue;
     border-radius: 10px;
     box-shadow: 4px 8px 16px rgba(0, 0, 0, 0.15);
-
+    text-align: center;
 }
 
 
@@ -198,7 +200,7 @@ img {
 }
 
 
-
+</style>
 
 
 """

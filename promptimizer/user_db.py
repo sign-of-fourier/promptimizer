@@ -33,7 +33,6 @@ class dynamo_jobs:
     def initialize(self, P):
 
         job_id = self.max_job_id(P)
-
         X = {'iterations': [], 'job_id': job_id + 1,
              'transaction_timestamp': str(dt.now())}
         for n in self.keys:
@@ -45,9 +44,10 @@ class dynamo_jobs:
         return self.db.put_item(Item = X)
 
     def max_job_id(self, P):
-        J = self.get_jobs(P)
+        J = self.get_jobs({'email_address': P['email_address']})
         if J:
-            if len(J['setup_id']) < 1:
+            if len(J['job_id']) < 1:
+                print('job_id is empty !')
                 return 0
             else:
                 return max(J['job_id'])
@@ -68,26 +68,27 @@ class dynamo_jobs:
                     )
 
             items = response.get('Items')
-            X = {}
-            keys = self.keys + ['transaction_timestamp', 'iterations', 'job_id']
-            for k in keys:
-                X[k] = []
-            for item in items:
-                print('Item', item)
+            if items:
+                X = {}
+                keys = self.keys + ['transaction_timestamp', 'iterations', 'job_id']
                 for k in keys:
-                    if k in item.keys():
-                        X[k].append(item[k])
-            return X
+                    X[k] = []
+                for item in items:
+                    for k in keys:
+                        if k in item.keys():
+                            X[k].append(item[k])
+                return X
+            else:
+                return None
 
     def update(self, P):
 
         X = { 'transaction_timestamp':  str(dt.now())}
 
-        for k in self.keys:
+        for k in self.keys + ['iterations', 'job_id']:
             if k not in P.keys():
                 return 'jobs::update missing ' + k
             X[k] = P[k]
-
         return self.db.put_item(Item = X)
 
 
@@ -167,7 +168,7 @@ class dynamo_usage:
 
 
 
-class dynamo_client:
+class dynamo_user:
     def __init__(self):
         dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
 
