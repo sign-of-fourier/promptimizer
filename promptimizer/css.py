@@ -1,6 +1,12 @@
-style="""* {
+style="""
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<style>
+
+* {
   box-sizing: border-box;
 }
+
 
 body {
   margin: 1;
@@ -50,7 +56,6 @@ body {
   overflow: hidden;
 }
 
-/* Subnav button */
 .subnav .subnavbtn {
   font-size: 16px;
   border: none;
@@ -94,13 +99,6 @@ body {
   display: block;
 }
 
-
-
-
-
-
-
-/* Create three unequal columns that floats next to each other */
 .column {
   float: left;
   padding: 10px;
@@ -120,7 +118,7 @@ body {
   /*border-radius: 30px;*/
 }
 .column.small {
-  border: 1px solid purple;
+  border: 0px solid purple;
   width: 5%;
   bacground-color: aliceblue;
 }
@@ -202,7 +200,7 @@ img {
 }
 
 
-
+</style>
 
 
 """

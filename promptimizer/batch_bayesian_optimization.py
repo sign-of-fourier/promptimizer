@@ -1,7 +1,28 @@
 import random
 import requests
 import json
+import openai
 from sklearn.metrics import roc_auc_score
+import os
+import re
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import WhiteKernel, Matern, DotProduct
+from scipy.stats import ecdf, lognorm
+#from multiprocessing import Pool
+from scipy.stats import norm
+import pandas as pd
+from promptimizer import ops, user_db, css, webpages 
+import boto3
+import numpy as np
+import datetime
+
+
+def write_log(message):
+    print(message)
+    with open("/tmp/bayes.log", 'a') as f:
+        f.write('[' + str(datetime.datetime.today()) +'] ' + message + "\n")
+
+
 
 def probability(word):
     if word == 'very likely':
@@ -43,8 +64,8 @@ def score_prompts(filename_id, par):
                 if match:
                     try:
                         content = json.loads(match.group(0))
-                        if request.form['label'] in content.keys():
-                            prediction = content[request.form['label']]
+                        if par['label'] in content.keys():
+                            prediction = content[par['label']]
                             #if ~np.isnan(prediction):
                             prompt_ids.append(custom_ids_components[1])
                             record_ids.append(custom_ids_components[2])
@@ -67,13 +88,20 @@ def score_prompts(filename_id, par):
                                    'record_id': record_ids,
                                    'prediction': predictions,
                                    'usage': total_tokens})
-    predictions_df.to_csv('s3://' + bucket + '/' + par['setup_id'] + '/predictions/', index=False)
+    predictions_df.to_csv('s3://' + ops.bucket + '/' + par['setup_id'] + '/predictions/', index=False)
     print('get training data', par['key_path'], par['setup_id'])
-    training_df = pd.read_csv('s3://' + bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
+    training_df = pd.read_csv('s3://' + ops.bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
     truth = training_df['output']
 
 
-
+    azure_client.close()
+    if par['evaluator'].lower() == 'accuracy':
+        return accuracy(predictions_df, truth)
+    elif par['evaluator'].lower() == 'auc':
+        return auc(predictions_df, truth)
+    else:
+        write_log("score_prompts: ERROR No evaluator")
+        return "ERROR", "No Evaluator"
 
 def auc(predictions_df, truth):
 
@@ -91,7 +119,7 @@ def auc(predictions_df, truth):
     print(prompt_auc)
     print(':::::::::::')
     for k in prompt_auc.keys():
-        performance_report += threerows.format(k, prompt_auc[k], tokens[k])
+        performance_report += webpages.threerows.format(k, prompt_auc[k], tokens[k])
     print(performance_report)
     return prompt_auc, performance_report +'</table>'
 
@@ -105,10 +133,11 @@ def accuracy(predictions_df, truth):
     #results = [json.loads(model)['modelOutput']['output']['message']['content'][0]['text']
     prompt_accuracy = {}
     test_size = {}
+    tokens = {}
     for p in predictions_df['prompt_id'].unique():
         test_size[p] = predictions_df[predictions_df['prompt_id'] == p].shape[0]
         prompt_accuracy[p] = 0
-        tokens[k] = predictions_df[predictions_df['prompt_id'] == p]['tokens'].sum()
+        tokens[p] = predictions_df[predictions_df['prompt_id'] == p]['usage'].sum()
 
     for prompt_id, record_id, prediction in zip(predictions_df['prompt_id'], predictions_df['record_id'], predictions_df['prediction']):
         if prediction.lower() == truth[int(record_id)]:
@@ -117,12 +146,109 @@ def accuracy(predictions_df, truth):
     #        print(prediction.lower(), ' : ', record_id, ' : ', truth[str(record_id)])
 
     for prompt_id in prompt_accuracy.keys():
-        performance_report += threerows.format(prompt_id,
+        performance_report += webpages.threerows.format(prompt_id,
                                                round(prompt_accuracy[prompt_id]/test_size[prompt_id],4),
                                                tokens[prompt_id])
 
 
     return prompt_accuracy, performance_report + '</table>'
+
+
+
+
+
+def optimize(use_case, prompt_ids, parameters, performance_report = ()):
+
+
+    s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+
+    df = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/training_data/' + parameters['setup_id'])
+
+    if ('input' in df.columns) & ('output' in df.columns):
+        preview_text = []
+        preview_target = []
+        preview_data = '<table border=0><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
+        for x in range(min(3, df.shape[0])):
+            preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
+            preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
+        preview_data += "</table>"
+
+    else:
+        return "Your file must contain columns with the names 'input' and 'output'."
+
+    print('writing {} new files.'.format(len(prompt_ids)))
+    write_log('optimize (key_path): ' + parameters['key_path'])
+    write_log('optimize (setup_id): ' + parameters['setup_id'])
+
+    obj = s3.get_object(Bucket=ops.bucket, Key=parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/consolidated.csv')
+    prompts = obj['Body'].read().decode('utf-8').split("|")
+
+    evaluation_jsonl = []
+    for prompt_id in prompt_ids:
+        prompt = prompts[prompt_id]
+        print('P id: ', prompt_id)
+        for i, text in enumerate(df['input']):
+            query = {'custom_id': 'PROMPT_{}_{}'.format(prompt_id, i),
+                     'method': 'POST',
+                     'url': '/chat/completions',
+                     'body': {
+                         'model': 'gpt-4o-mini-batch',
+                        'temperature': .03,
+                         'messages': [
+                             {'role': 'system', 'content': parameters['task_system']},
+                             {'role': 'user', 'content': prompt + "\n" + parameters['separator']+"\n" + text}
+                            ]
+                         }
+                     }
+            evaluation_jsonl.append(json.dumps(query))
+
+    batch_response_id, azure_file_id = ops.azure_batch([evaluation_jsonl])
+    write_log('optimize (azure_file_id): ' + str(azure_file_id))
+    azure_file_ids = parameters['azure_file_id'] + ';' + azure_file_id[0]
+
+    jdb = user_db.dynamo_jobs()
+    history = jdb.get_jobs({'email_address': parameters['email_address'],
+                            'setup_id': parameters['setup_id']})[0]
+
+    write_log('optimize (dynamo_jobs().get_jobs): ' + str(history))
+    write_log('optimize (batch_response_id): ' + batch_response_id[0])
+    history['iterations'].append(batch_response_id[0])
+    jdb.update(history)
+
+
+    n_training_examples = df.shape[0]
+
+
+    sidebar = f"<table>" + webpages.tworows.format("Evaluator", parameters['evaluator'])+\
+            webpages.tworows.format("Use Case", use_case)+\
+            webpages.tworows.format("N Rows", n_training_examples)+ "</table>"
+
+    hidden_variables = webpages.hidden.format('azure_job_id', batch_response_id[0])+\
+            webpages.hidden.format('azure_file_id', azure_file_ids)+\
+            webpages.hidden.format('jobArn', '')
+
+    for k in ['setup_id', 'key_path', 'setup_id', 'evaluator', 'label',
+              'n_batches', 'batch_size', 'separator', 'task_system',
+              'filename_ids', 'email_address']:
+        if k in parameters.keys():
+            hidden_variables += webpages.hidden.format(k, parameters[k])
+        else:
+            print(k, 'not defined in optimize')
+
+    if len(performance_report) > 0:
+        history, best_prompt, stats = performance_report
+        preview_data = ''
+    else:
+        history = ''
+        best_prompt = ''
+        stats = ''
+
+    return webpages.check_status_form.format(css.style, webpages.navbar, sidebar + stats, use_case,
+                                             'iterate', preview_data+hidden_variables+history, best_prompt)
+
+
+
 
 
 def bayes_pipeline(use_case, filename_id, par, stats):
@@ -139,16 +265,16 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     scores_by_prompt, performance_report = score_prompts(filename_id, X)
 
 
-    usage = user_db.dynamo_usage().get_usage({'email_address': request.form['email_address']})
-    stats += tworows.format('Balance', usage['current_tokens']) + '</table>'
+    usage = user_db.dynamo_usage().get_usage({'email_address': X['email_address']})
+    stats += webpages.tworows.format('Balance', usage['current_tokens']) + '</table>'
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-    obj = s3.get_object(Bucket=bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
+    obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
     prompts = obj['Body'].read().decode('utf-8').split("|")
 
-    obj = s3.get_object(Bucket=bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
+    obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
     embeddings_raw = [[float(x) for x in e.split(',')] for e in obj['Body'].read().decode('utf-8').split("\n")]
     scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
     unscored_embeddings = []
@@ -181,9 +307,9 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     gpr.fit(scored_embeddings, transformed_scores)
     mu, sigma = gpr.predict(unscored_embeddings, return_cov=True)
 
-    batch_idx, batch_mu, batch_sigma = bbo.create_batches(gpr, unscored_embeddings, int(par['n_batches']), int(par['batch_size']))
+    batch_idx, batch_mu, batch_sigma = create_batches(gpr, unscored_embeddings, int(par['n_batches']), int(par['batch_size']))
     try:
-        best_idx = bbo.get_best_batch(batch_mu, batch_sigma, par['batch_size'])
+        best_idx = get_best_batch(batch_mu, batch_sigma, par['batch_size'])
     except Exception as e:
         print(e)
         print('might have the wrong evaluation function', par['evaluator'])

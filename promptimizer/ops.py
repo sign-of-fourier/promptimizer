@@ -5,6 +5,10 @@ import os
 import re
 import openai
 
+
+bucket = 'sagemaker-us-east-2-344400919253'
+
+
 bedrock_model_catalog = {'Nova Micro': 'us.amazon.nova-micro-v1:0',
                  'Nova Pro': 'us.amazon.nova-micro-v1:0',
                  'Llama 3.1': 'us.amazon.nova-micro-v1:0',
@@ -141,11 +145,6 @@ def make_jsonl(prompt_system, prompt_user, model, temp, n_records, demo_path = N
         jsonl.append(json.dumps(query))
 
     return jsonl
-
-
-
-
-bucket = 'sagemaker-us-east-2-344400919253'
 
 
 

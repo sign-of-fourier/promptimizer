@@ -1,15 +1,74 @@
+
+hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
+
+
+tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
+
+threerows = "<tr><td><b>{}</b></td><td>{}</td><td>{}</td></tr>\n"
+
+
+choose_product = """
+{}
+
+<body>
+{}
+<div class="column row"></div>
+
+<div class="column tenth"></div>
+
+<div class="column fifth">
+  <div class="card">
+  <font size=+3><b>50 Credits</b></font><br>
+  <br><br>
+  <font size="+3">$39</font><br>
+  <form action='https://buy.stripe.com/test_8x23cvcVz1V831dfEwbjW00'>
+  <input type="submit" name="product" value="Checkout">
+  </form>
+  </div>
+</div>
+
+<div class="column tenth"></div>
+
+<div class="column fifth">
+  <div class="card"><font size="+3">
+    <b>Subscription</b></font><br>
+    100 credits per month<br><br>
+    <font size="+3">$59</font><br>
+    <form action='stripe'>
+    <input type="submit" name="product" value="Checkout">
+    </form>
+  </div>
+</div>
+
+<div class="column tenth"></div>
+
+<div class="column fifth">
+  <div class="card">
+  <font size="+3"><b>Enterprise</b><br></font>
+  Custom<br><br>
+  <font size="+2">Starting at $1000</font><br>
+  <form action='/email'>
+  <input type="submit" name="product" value="Contact Us">
+  </form>
+  </div>
+</div>
+
+
+<div class="column tenth"></div>
+
+
+</html>
+"""
+
+
+
+
 rag_help_page = """<html>
 
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-<style>
 {}
-</style>
-{}
-
-
-<h1>RAG File Preparation Instructions</h1>
 <body>
+<h1>RAG File Preparation Instructions</h1>
+{}
 <p>
 <table border=0>
 <tr><td>
@@ -104,31 +163,38 @@ rag_help_page = """<html>
 
 
 
-waiting = """<html><style>{}</style>
+waiting = """<html>
 {}
 <body>
+{}
+<div class="column row"></div>
 <div class="column left">{}</div>
-<div class="column middle">
-<div class="card">
+  <div class="column middle">
+    <div class="card">
 {}
-<form action="/check_status?use_case={}&next_action={}" method="POST">
+    <form action="/check_status?use_case={}&next_action={}" method="POST">
 {}
-<input type="submit" Value="Check Again"></input>
-</form>
-</form>
+    <input type="submit" Value="Check Again"></input>
+    </form>
+    </form>
+
+  </div>
 </div>
 <div class="column small"></div>
+
+
+
+
+
 </body>
 </html>
 """
 
 
 optimize_form = """<html>
-<style>
-{}
-</style>
 {}
 <body>
+{}
 <div class="column left">
 {}
 </div>
@@ -193,11 +259,9 @@ optimize_form = """<html>
 
 
 check_status_form = """<html>
-<style>
 {}
-</style>
+<body>
 {}
-<br><body>
 <div class="column row"></div>
 <div class="column left">
 {}
@@ -265,9 +329,7 @@ email_and_password = """    <tr>
 
 enumerate_prompts =  """
 <html>
-<style>
 {}
-</style>
 <body>
 {}
 <div class="column row"></div>
@@ -369,9 +431,7 @@ enumerate_prompts =  """
 load_job = """
 
 <html>
-<style>
 {}
-</style>
 <body>
 {}
 <div class="column row"></div>
@@ -407,11 +467,9 @@ load_job = """
 
 load_prompt = """
 <html>
-<style>
 {}
-</style>
+{}
 <body>
-{}
 <div class="column row"></div>
 <div class="column small"></div>
 <div class="column middle_big">
@@ -422,8 +480,8 @@ load_prompt = """
     <tr>
         <td></td>
         <td> ID </td>
-        <td> System </td>
-        <td> User </td>
+        <td> Prompt </td>
+        <td> Date/Time </td>
         <td> <b>Use Case</b></td>
     </td>
     {}
@@ -466,7 +524,7 @@ navbar = """
 <div class="navbar">
 
     <a href="/">Home</a>
-    <a href="/">Signup</a>
+    <a href="/signup">Sign Up!</a>
     <a href='/buy_credits'>Buy Credits</a>
     <div class="subnav">
         <button class="subnavbtn">User Library</a><i class="fa fa-caret-down"></i></button>
@@ -516,18 +574,67 @@ header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 </div>
 """
 
-sign_in = """<html>
-<style>
+sign_up = """<html>
 {}
-</style>
 <body>
 {}
+<div class="column row"></div>
 <div class="column small"></div>
 
 <div class="column middle_big">
-
+<br>
 
 <div class="column shaded">
+<font size="+1"><b>Sign Up</b></font>
+<br>
+<form action="/testuser" method="POST">
+<table>
+    <tr>
+        <td>First Name</td>
+        <td><input type="text" name="firstname" value=""></input></td>
+    </tr>
+    <tr>
+        <td>Last Name</td>
+        <td><input type="text" name="lastname" value=""></input></td>
+    </tr>
+
+    <tr>
+        <td>Eail</td>
+        <td><input type="text" name="email_address" value=""></input></td>
+    </tr>
+    <tr>
+        <td>Password</td>
+        <td><input type="text" name="password"></input></td>
+    </tr>
+    <tr>
+      <td>
+         <input type="submit" name="submit" value="submit"></input>
+      </td>
+    </tr>
+</table>
+</div>
+</div>
+<div class="column small"></div>
+</form>
+
+</html>
+"""
+
+
+
+sign_in = """<html>
+{}
+<body>
+{}
+<div class="column row"></div>
+<div class="column small"></div>
+
+<div class="column middle_big">
+<br>
+
+<div class="column shaded">
+<font size="+1"><b>Sign In</b></font>
+<br>
 <form action="{}" method="POST">
 <table>
     <tr>
@@ -555,12 +662,9 @@ sign_in = """<html>
 
 use_case_selector = """
 <html>
-<style>
 {}
-</style>
-
+{}
 <body>
-{}
 <div class="column row"></div>
 <table border=0>
     <tr>
@@ -741,10 +845,9 @@ use_case_selector = """
 
 
 settings = """<htnl>
-<style>
 {}
-</style>
 {}
+<body>
 <h2>Settings</h2>
 <div class="column small"></div>
 <div class="column middle_big">
