@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='promptimizer',
-      version='0.7.5.1',
+      version='0.7.5.2',
       description='Prompt Optimization server.',
       url='https://quantecarlo.com',
       author='sign-of-fourier',
