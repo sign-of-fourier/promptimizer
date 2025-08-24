@@ -590,7 +590,7 @@ def check_iterate_status(request):
                 tworows.format("Current Status", batch_response.status)
 
         hidden_variables = ''
-        for v in ['label', 'batch_size', 'n_batches', 'key_path', 'task_system'
+        for v in ['label', 'batch_size', 'n_batches', 'key_path', 'task_system',
                   'setup_id', 'filename_ids', 'azure_file_id', 'separator',
                   'azure_job_id', 'evaluator', 'email_address']:
             if v in request.form.keys():

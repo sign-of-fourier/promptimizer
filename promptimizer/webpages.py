@@ -694,9 +694,11 @@ use_case_selector = """
             <td>
                 <b>Next Screens</b>
                 <ol start="5">
+                    <font size="+1">
                     <li>You will choose the corresponding metric on the next screen.</li>
                     <li>Click submit to create the search space</li>
                     <li>After the search space is created, you will upload a file of labeled data to perform the optimization.</li>
+                </font>
                 </ol>
         </td>
         <td>
