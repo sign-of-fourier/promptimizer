@@ -1,4 +1,4 @@
-strip
+stripe
 gunicorn
 openai
 scikit-learn
