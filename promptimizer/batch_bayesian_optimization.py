@@ -263,7 +263,7 @@ def bayes_pipeline(use_case, filename_id, par, stats):
 
 
     usage = user_db.dynamo_usage().get_usage({'email_address': X['email_address']})
-    stats += webpages.tworows.format('Balance', usage['current_tokens']) + '</table>'
+    stats += webpages.tworows.format('Balance', usage['current_tokens'][-1]) + '</table>'
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')

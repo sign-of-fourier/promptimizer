@@ -142,8 +142,9 @@ def job_selector(email_address):
 def load_job():
 
     db = user_db.dynamo_jobs()
-    job = db.get_jobs(request.form)[0]
 
+    job = db.get_jobs(request.form)[0]
+    ledger = user_db.dynamo_usage().get_usage(request.form)
     df = pd.read_csv('s3://' + ops.bucket + '/' + job['key_path'] + '/training_data/' + job['setup_id'])
     sample_df = df.sample(10)
     preview_data = '<table border=0><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
@@ -157,20 +158,33 @@ def load_job():
 
     sidebar = "<table border=0>" + webpages.tworows.format("Evaluator", job['evaluator'])+\
             webpages.tworows.format("Use Case", job['use_case'])+\
-            webpages.tworows.format("N Rows", n_training_examples)
+            webpages.tworows.format("N Rows", n_training_examples)+\
+            webpages.tworows.format('Balance', ledger['current_tokens'][-1])
 
     prompts = '<table>'    
     hidden_variables = ''
     for h in db.initial_keys + db.other_keys:
         if h == 'iterations':
             x = ';'.join(job[h])
+            azure_client = openai.AzureOpenAI(
+                    api_key=os.environ['AZURE_OPENAI_KEY'],
+                    api_version="2024-10-21",
+                    azure_endpoint = os.environ["AZURE_ENDPOINT"]
+                    )
+            hidden_variables += hidden.format('azure_file_id', 
+                                              ';'.join([azure_client.batches.retrieve(b).output_file_id for b in job[h]])
+                                              )
+            azure_client.close()
+            
         elif h in ['meta_user', 'meta_system', 'task_system', 'separator']:
-            if h == 'separator':
-                x = job[h]
-            else:
-                x = job[h][:150] + ' ...'
+            x = job[h]
             hx = ' '.join([z.capitalize() for z in h.split('_')])
-            prompts += tworows.format(hx, x) + '<tr><td> &nbsp; </td><td> &nbsp; </td></tr>'
+
+            if h == 'separator':
+                prompts += tworows.format(hx, x) + '<tr><td> &nbsp; </td><td> &nbsp; </td></tr>'
+            else:
+                prompts += tworows.format(hx, x[:140] + ' ...') + '<tr><td> &nbsp; </td><td> &nbsp; </td></tr>'
+
         else:
             x = job[h]
             if h not in ['setup_id', 'key_path', 'job_id']:
