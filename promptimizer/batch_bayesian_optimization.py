@@ -150,9 +150,9 @@ def accuracy(predictions_df, truth):
                                                round(prompt_accuracy[prompt_id]/test_size[prompt_id],4),
                                                tokens[prompt_id])
 
-
     return prompt_accuracy, performance_report + '</table>'
 
+#def generate_preview(key_path, setup_id):
 
 
 
@@ -166,8 +166,6 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     df = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/training_data/' + parameters['setup_id'])
 
     if ('input' in df.columns) & ('output' in df.columns):
-        preview_text = []
-        preview_target = []
         preview_data = '<table border=0><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
         for x in range(min(3, df.shape[0])):
             preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
@@ -176,6 +174,8 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     else:
         return "Your file must contain columns with the names 'input' and 'output'."
+
+    n_training_examples = df.shape[0]
 
     print('writing {} new files.'.format(len(prompt_ids)))
     write_log('optimize (key_path): ' + parameters['key_path'])
@@ -216,11 +216,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     history['iterations'].append(batch_response_id[0])
     jdb.update(history)
 
-
-    n_training_examples = df.shape[0]
-
-
-    sidebar = f"<table>" + webpages.tworows.format("Evaluator", parameters['evaluator'])+\
+    sidebar = "<table>" + webpages.tworows.format("Evaluator", parameters['evaluator'])+\
             webpages.tworows.format("Use Case", use_case)+\
             webpages.tworows.format("N Rows", n_training_examples)+ "</table>"
 
@@ -246,6 +242,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     return webpages.check_status_form.format(css.style, webpages.navbar, sidebar + stats, use_case,
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
+
 
 
 

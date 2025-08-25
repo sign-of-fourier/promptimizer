@@ -190,6 +190,31 @@ waiting = """<html>
 </html>
 """
 
+review_loaded_file = """
+<html>
+{}
+<body>
+{}
+<div class="column row"></div>
+<div class="column left">
+{}
+</div>
+<div class="column middle">
+{}
+<hr>
+{}
+<form action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
+{}
+<br>
+<input type="submit" value="Continue"></input>
+</form>
+
+</div>
+<div class="column small"></div>
+</html>
+
+
+"""
 
 optimize_form = """<html>
 {}
@@ -350,13 +375,13 @@ enumerate_prompts =  """
     <tr>
         <td> &nbsp; &nbsp; &nbsp; </td>
         <td><b>Meta Prompt - System</b></td>
-        <td><textarea name="writer_system" rows=3 cols=60>{}</textarea></td>
+        <td><textarea name="meta_system" rows=3 cols=60>{}</textarea></td>
         <td> &nbsp; &nbsp; &nbsp; </td>
     </tr>
     <tr>
         <td></td>
         <td><b>Meta Prompt - User</b></td>
-        <td><textarea name="writer_user" rows=8 cols=100>{}</textarea></td>
+        <td><textarea name="meta_user" rows=8 cols=100>{}</textarea></td>
         <td></td>
     </tr>
     <tr>
@@ -428,7 +453,7 @@ enumerate_prompts =  """
 <div class="column small"></div></form>
 <div class="column row"></div>
 """
-load_job = """
+view_jobs = """
 
 <html>
 {}
@@ -465,7 +490,7 @@ load_job = """
 
 """
 
-load_prompt = """
+load = """
 <html>
 {}
 {}
@@ -474,7 +499,7 @@ load_prompt = """
 <div class="column small"></div>
 <div class="column middle_big">
 <div class="column shaded">
-<form action="/user_library" method="POST">
+<form action="{}" method="POST">
 
 <table>
     <tr>
@@ -529,8 +554,8 @@ navbar = """
     <div class="subnav">
         <button class="subnavbtn">User Library</a><i class="fa fa-caret-down"></i></button>
         <div class="subnav-content">
-            <a href="/load_prompt">Load Prompt</a>
-            <a href="/load_job">Load Job</a>
+            <a href="/view_prompts">Load Prompt</a>
+            <a href="/view_jobs"> Load Job</a>
         </div>
     </div>
 
@@ -569,7 +594,7 @@ header_and_nav = """<title>Promptimizer by Quante Carlo</title>
 <a href="/">Signup</a>
 <a href="https://quantecarlo.com">Quante Carlo</a>
 <a href="/rag">How to prepare RAG</a>
-<a href="/load_prompt">Load Prompt</a>
+<a href="/view_prompts">Load Prompt</a>
 
 </div>
 """

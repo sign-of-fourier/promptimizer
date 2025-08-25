@@ -1,6 +1,6 @@
-writer_system = "You are a prompt engineer. Your job is to write a prompt to diagnose a patient based on his or her description of symptoms."
+meta_system = "You are a prompt engineer. Your job is to write a prompt to diagnose a patient based on his or her description of symptoms."
 
-writer_user = """Write a prompt that instructs a language model to make a diagnosis based on a patient's description of symptoms. Tell the model that it will be given some text and instruct it to determine the disease based on the description:
+meta_user = """Write a prompt that instructs a language model to make a diagnosis based on a patient's description of symptoms. Tell the model that it will be given some text and instruct it to determine the disease based on the description:
 
 The model is to choose the disease from this list of choices: 
 "cervical spondylosis", "impetigo", "urinary tract infection", "arthritis", "dengue", "common cold", "drug reaction", "fungal infection", "malaria", "allergy", "bronchial", "asthma", "varicose veins", 'migraine', 'hypertension', 'gastroesophageal reflux disease', 'pneumonia", "psoriasis", "diabetes", "jaundice", "chicken pox", "typhoid", "peptic ulcer disease"
