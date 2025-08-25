@@ -117,6 +117,10 @@ body {
   overflow: auto;
   /*border-radius: 30px;*/
 }
+.column.half {
+  width: 50%;
+  overflow: auto:
+}
 .column.small {
   border: 0px solid purple;
   width: 5%;

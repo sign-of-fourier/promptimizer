@@ -11,8 +11,8 @@ bucket = 'sagemaker-us-east-2-344400919253'
 
 initial_df = pd.DataFrame({'prompt_id': [0], 
                            'use_case': ['messy'],
-                           'writer_system': ['My First Saved Prompt'],
-                           'writer_user': ['that too'],
+                           'meta_system': ['My First Saved Prompt'],
+                           'meta_user': ['that too'],
                            'task_system': ['task_system'],
                            'separator': ['---'],
                            'label': ['probability'],
@@ -29,13 +29,15 @@ class dynamo_jobs:
     def __init__(self):
         dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
         self.db = dynamodb.Table('Jobs2')
-        self.keys = ['email_address', 'setup_id', 'key_path', 'meta_user', 'use_case', 'meta_system']
+        self.initial_keys = ['email_address', 'setup_id', 'key_path', 'meta_user', 'use_case', 'meta_system']
+        self.other_keys = ['task_system', 'evaluator', 'separator', 'label', 'iterations', 'job_id']
     def initialize(self, P):
 
         job_id = self.max_job_id(P)
         X = {'iterations': [], 'job_id': job_id + 1,
+             'evaluator': '', 'label': '', 'separator': '', 
              'transaction_timestamp': str(dt.now())}
-        for n in self.keys:
+        for n in self.initial_keys:
             if n in P.keys():
                 X[n] = P[n] 
             else:
@@ -70,7 +72,7 @@ class dynamo_jobs:
             items = response.get('Items')
             if items:
                 X = {}
-                keys = self.keys + ['transaction_timestamp', 'iterations', 'job_id']
+                keys = self.initial_keys + self.other_keys + ['transaction_timestamp']
                 for k in keys:
                     X[k] = []
                 for item in items:
@@ -85,7 +87,7 @@ class dynamo_jobs:
 
         X = { 'transaction_timestamp':  str(dt.now())}
 
-        for k in self.keys + ['iterations', 'job_id']:
+        for k in self.initial_keys + self.other_keys:
             if k not in P.keys():
                 return 'jobs::update missing ' + k
             X[k] = P[k]

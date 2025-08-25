@@ -67,7 +67,7 @@ def prompt_preview():
         use_case_specific += webpages.demonstrations_input
 
     return webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case, 
-                                             prompt_library.writer_system, prompt_library.writer_user, 
+                                             prompt_library.meta_system, prompt_library.meta_user, 
                                              prompt_library.label_name, use_case_specific, model_section, webpages.email_and_password)
 
 
@@ -111,8 +111,8 @@ def user_library():
         status_message = user_library
 
     response = make_response(webpages.enumerate_prompts.format(css.style, webpages.navbar, selection['use_case'].iloc[0],
-                                                               selection['writer_system'].iloc[0],
-                                                               selection['writer_user'].iloc[0], selection['label'].iloc[0], 
+                                                               selection['meta_system'].iloc[0],
+                                                               selection['meta_user'].iloc[0], selection['label'].iloc[0], 
                                                                use_case_specific, model_section, status_message))
     if status == 200:
         response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=7200)
@@ -132,16 +132,59 @@ def job_selector(email_address):
                                            jobs['transaction_timestamp'], jobs['use_case']):
                 user_jobs += five_radio_job(int(j), s, m, tt, u)
 
-            response = make_response(webpages.load_prompt.format(css.style, webpages.navbar,
-                                                                 user_jobs, hidden_variables))
+            response = make_response(webpages.load.format(css.style, webpages.navbar,'/load_job',
+                                                          user_jobs, hidden_variables))
             return response
         else:
             return make_response(css.style + webpages.navbar + "<div class=\"column row\"></div><br> &nbsp; No jobs")
 
-
-
-@app.route("/load_job", methods=['POST', 'GET'])
+@app.route("/load_job", methods=["POST"])
 def load_job():
+
+    db = user_db.dynamo_jobs()
+    job = db.get_jobs(request.form)[0]
+
+    df = pd.read_csv('s3://' + ops.bucket + '/' + job['key_path'] + '/training_data/' + job['setup_id'])
+    sample_df = df.sample(10)
+    preview_data = '<table border=0><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
+    for x in range(min(3, sample_df.shape[0])):
+        preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + sample_df['input'].iloc[x] + "</td>\n"
+        preview_data += "    <td>" + str(sample_df['output'].iloc[x]) + "</td>\n</tr><tr><td> &nbsp; </td><td> &nbsp; </td><td> &nbsp; </td></tr>\n"
+    preview_data += "</table>"
+
+    use_case = job['use_case']
+    n_training_examples = df.shape[0]
+
+    sidebar = "<table border=0>" + webpages.tworows.format("Evaluator", job['evaluator'])+\
+            webpages.tworows.format("Use Case", job['use_case'])+\
+            webpages.tworows.format("N Rows", n_training_examples)
+
+    prompts = '<table>'    
+    hidden_variables = ''
+    for h in db.initial_keys + db.other_keys:
+        if h == 'iterations':
+            x = ';'.join(job[h])
+        elif h in ['meta_user', 'meta_system', 'task_system', 'separator']:
+            if h == 'separator':
+                x = job[h]
+            else:
+                x = job[h][:150] + ' ...'
+            hx = ' '.join([z.capitalize() for z in h.split('_')])
+            prompts += tworows.format(hx, x) + '<tr><td> &nbsp; </td><td> &nbsp; </td></tr>'
+        else:
+            x = job[h]
+            if h not in ['setup_id', 'key_path', 'job_id']:
+                sidebar += tworows.format(h, x)
+        hidden_variables += hidden.format(h, x)
+    sidebar += '</table>'
+    prompts += '</table>'
+
+    return webpages.review_loaded_file.format(css.style, webpages.navbar, sidebar, prompts,  preview_data, use_case,
+                                              hidden_variables)
+
+
+@app.route("/view_jobs", methods=['POST', 'GET'])
+def view_jobs():
 
 
     if ('email_address' in request.form.keys()) & ('password' in request.form.keys()):
@@ -163,8 +206,8 @@ def load_job():
 
 
 
-@app.route("/load_prompt", methods=['POST', 'GET'])
-def load_prompt():
+@app.route("/view_prompts", methods=['POST', 'GET'])
+def view_prompts():
 
 
     email_address = request.cookies.get('quante_carlo_email')
@@ -188,12 +231,12 @@ def load_prompt():
         user_prompts = ''
         hidden_variables = hidden.format('email_address', email_address) + hidden.format('password', password)
 
-        for pid, user, system, u in zip(user_library['prompt_id'], user_library['writer_user'], user_library['writer_system'],
+        for pid, user, system, u in zip(user_library['prompt_id'], user_library['meta_user'], user_library['meta_system'],
                                         user_library['use_case']):
 
             user_prompts += five_radio_prompt(pid, user, system, u)
 
-        response = make_response(webpages.load_prompt.format(css.style, webpages.navbar,  user_prompts,hidden_variables))
+        response = make_response(webpages.load.format(css.style, webpages.navbar, '/user_library', user_prompts,hidden_variables))
 
         response.set_cookie('quante_carlo_email', email_address, max_age=3600)
         response.set_cookie('quante_carlo_password', password, max_age=1798)
@@ -214,7 +257,7 @@ def enumerate_prompts():
 
         email_address = request.cookies.get('quante_carlo_email')
         password = request.cookies.get('quante_carlo_password')
-        for k in ['writer_user', 'writer_system', 'separator', 'label',
+        for k in ['meta_user', 'meta_system', 'separator', 'label',
                   'task_system', 'evaluator']:
             S[k] = [request.form[k]]
 
@@ -230,8 +273,8 @@ def enumerate_prompts():
                     hidden.format('password', request.form['password'])
 
         response =  make_response(webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case,
-                                                 request.form['writer_system'],
-                                                 request.form['writer_user'], request.form['label'], use_case_specific, model_section, save_status))
+                                                 request.form['meta_system'],
+                                                 request.form['meta_user'], request.form['label'], use_case_specific, model_section, save_status))
         if status != 209:
             response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
             response.set_cookie('quante_carlo_password', request.form['password'], max_age=1800)
@@ -258,8 +301,8 @@ def enumerate_prompts():
         usage_json = usage.get_usage(request.form)
         print('usage', usage_json)
 
-    prompt_user = request.form['writer_user']
-    prompt_system = request.form['writer_system']
+    prompt_user = request.form['meta_user']
+    prompt_system = request.form['meta_system']
     n_batches = request.form['n_batches']
     batch_size = request.form['batch_size']
     
@@ -297,8 +340,8 @@ def enumerate_prompts():
     key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
 
     jdb = user_db.dynamo_jobs()
-    job_status = jdb.initialize({"email_address": request.form['email_address'], 'meta_system': request.form['writer_system'],
-                                 "setup_id": random_string, 'meta_user': request.form['writer_user'], 'use_case': use_case,
+    job_status = jdb.initialize({"email_address": request.form['email_address'], 'meta_system': request.form['meta_system'],
+                                 "setup_id": random_string, 'meta_user': request.form['meta_user'], 'use_case': use_case,
                                  'key_path': key_path})
 
     write_log('enumerate_prompts (job_status): ' + str(job_status))
@@ -335,7 +378,7 @@ def enumerate_prompts():
     
     response = make_response(webpages.check_status_form.format(css.style, webpages.navbar, sidebar, use_case, 'optimize', 
                                                                message, "<font color=\"lightslategrey\"><i>Waiting ...</i></font>" + hidden_variables))
-
+    write_log('enumerate_prompts (quante_carlo_email): ' + request.form['email_address'])
     response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
     response.set_cookie('quante_carlo_password', request.form['password'], max_age=1798)
 
@@ -627,7 +670,6 @@ def pre_optimize():
      s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
- 
      if not request.files['data'].filename:
          return "No training File"
      else:
@@ -636,7 +678,6 @@ def pre_optimize():
 
          s3.put_object(Body=request.files['data'].stream.read(),
                        Bucket=bucket, Key=request.form['key_path'] + '/training_data/' + request.form['setup_id'])
-
 
      obj = s3.get_object(Bucket=bucket, Key=request.form['key_path']+'/output/'+request.form['setup_id'] + '/consolidated.csv')
      prompts = obj['Body'].read().decode('utf-8').split("|")
@@ -654,6 +695,15 @@ def pre_optimize():
 
      s3.put_object(Body="\n".join(E), Bucket=bucket, Key=request.form['key_path'] + '/embeddings/' + request.form['setup_id'] + '.mbd')
      s3.close()
+
+     db = user_db.dynamo_jobs()
+     job = db.get_jobs(request.form)[0]
+     for k in db.other_keys:
+         if k in request.form.keys():
+            job[k] = request.form[k]
+         else:
+            print('pre_optimize missing', k)
+     db.update(job)
 
      return bbo.optimize(request.args.get('use_case'), range(4), X)
 
@@ -875,7 +925,7 @@ def prompt_manager(P, action):
         else:
             return auth, 209
     else:
-        return "prompt manager: need email_address and passwor and passwordd", 209
+        return "prompt manager: need email_address and password", 209
 
 
 def validate(keys, D, f):

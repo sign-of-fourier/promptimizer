@@ -1,7 +1,7 @@
-writer_system = "You a prompt engineeer."
+meta_system = "You a prompt engineeer."
 
 
-writer_user = """Write a prompt that instructs a language model to determine if an appended piece of text was written by AI or not. Do not introduce the prompt or add other formatting. I will append the text to your prompt with a label.
+meta_user = """Write a prompt that instructs a language model to determine if an appended piece of text was written by AI or not. Do not introduce the prompt or add other formatting. I will append the text to your prompt with a label.
 
 Instruct the model to determine if the probability that the the response was written by AI as either "very unlikely", "unlikely", "equally likely and unlikely", "likely", or "very likely".
 Tell the model to provide an analysis and probability in JSON format. For example: 
