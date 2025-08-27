@@ -156,9 +156,7 @@ def accuracy(predictions_df, truth):
 
 
 
-
 def optimize(use_case, prompt_ids, parameters, performance_report = ()):
-
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
@@ -183,10 +181,16 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     obj = s3.get_object(Bucket=ops.bucket, Key=parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/consolidated.csv')
     prompts = obj['Body'].read().decode('utf-8').split("|")
+    if parameters['examples'] != '':
+        examples = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/examples.csv')
 
+
+    demo = []
     evaluation_jsonl = []
     for prompt_id in prompt_ids:
         prompt = prompts[prompt_id]
+        if parameters['examples'] != '':
+            demo = json.loads(examples[prompt_id])
         print('P id: ', prompt_id)
         for i, text in enumerate(df['input']):
             query = {'custom_id': 'PROMPT_{}_{}'.format(prompt_id, i),
@@ -198,7 +202,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
                          'messages': [
                              {'role': 'system', 'content': parameters['task_system']},
                              {'role': 'user', 'content': prompt + "\n" + parameters['separator']+"\n" + text}
-                            ]
+                            ] + demo
                          }
                      }
             evaluation_jsonl.append(json.dumps(query))
@@ -208,8 +212,8 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     azure_file_ids = parameters['azure_file_id'] + ';' + azure_file_id[0]
 
     jdb = user_db.dynamo_jobs()
-    history = jdb.get_jobs({'email_address': parameters['email_address'],
-                            'setup_id': parameters['setup_id']})[0]
+    history = jdb.get_job({'email_address': parameters['email_address'],
+                           'setup_id': parameters['setup_id']})
 
     write_log('optimize (dynamo_jobs().get_jobs): ' + str(history))
     write_log('optimize (batch_response_id): ' + batch_response_id[0])
@@ -226,7 +230,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     for k in ['setup_id', 'key_path', 'setup_id', 'evaluator', 'label',
               'n_batches', 'batch_size', 'separator', 'task_system',
-              'filename_ids', 'email_address']:
+              'filename_ids', 'email_address', 'examples']:
         if k in parameters.keys():
             hidden_variables += webpages.hidden.format(k, parameters[k])
         else:
@@ -244,10 +248,6 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
 
 
-
-
-
-
 def bayes_pipeline(use_case, filename_id, par, stats):
 
     X = {}
@@ -260,7 +260,6 @@ def bayes_pipeline(use_case, filename_id, par, stats):
         X['filename_ids'] = filename_id
 
     scores_by_prompt, performance_report = score_prompts(filename_id, X)
-
 
     usage = user_db.dynamo_usage().get_usage({'email_address': X['email_address']})
     stats += webpages.tworows.format('Balance', usage['current_tokens'][-1]) + '</table>'
@@ -317,16 +316,6 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
     return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], X,
                     (performance_report, best_prompt, stats))
-
-
-
-
-
-
-
-
-
-
 
 def create_batches(gpr, rollout_embeddings, n_batches, batch_size):
     batch_mu = []

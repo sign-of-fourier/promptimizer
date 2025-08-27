@@ -203,9 +203,11 @@ review_loaded_file = """
 {}
 <hr>
 {}
-<form action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
+<form action="/bayes?use_case={}" method="POST" enctype="multipart/form-data">
 {}
 <br>
+<input type="hidden" name="n_batches" value="4096"></input>
+<input type="hidden" name="batch_size" value="4"></input>
 <input type="submit" value="Continue"></input>
 </form>
 
@@ -235,7 +237,7 @@ optimize_form = """<html>
         <tr>
         <td></td>
               <td>
-                  Training Data File
+                  Test Data File
               </td>
               <td><input type="file" name="data"></input>
               </td>
@@ -253,23 +255,25 @@ optimize_form = """<html>
         <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
         <td></td>
     </tr>
-
+    
     <tr>
         <td></td>
                 <td>
-                  Key Path (internal use)
+                    Examples (optional)<br>
+                    Make sure this ties out with your prompt.
                 </td>
                 <td>
-                  <input type="text" name="key_path" value="{}">
+                  <input type="file" name="examples"></input>
+                  <input type="hidden" name="key_path" value="{}"></input>
                 </td>
         <td></td>
     </tr>
     <tr>
-                <td></td>
-                <td>
-                    <input type="submit" value="Optimize!"></input>
-                </td>
-                <td></td>
+        <td></td>
+        <td>
+            <input type="submit" value="Optimize!"></input>
+        </td>
+        <td></td>
         <td></td>
     </tr>
 
