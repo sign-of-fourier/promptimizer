@@ -328,7 +328,7 @@ def enumerate_prompts():
             s3.close()
             demo_path = 's3://' + ops.bucket + '/' + demo_path
             demonstrations = request.files['demonstrations'].filename
-            return str(s)
+            print (s['ResponseMetaData']['HTTPStatusCode'])
     else:
         demo_path = ''
         demonstrations = ''
