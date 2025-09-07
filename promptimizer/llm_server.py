@@ -31,7 +31,7 @@ app = Flask(__name__, static_folder='data')
 def select_model(model_catalog):
 
 
-    options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 50, 100, 150, 200]])
+    options = "\n".join(["                    <option value=\"{}\">{}</option>".format(x, x) for x in [0, 25, 50, 100, 150, 200]])
 
     model_select = "        <td>\n                <select name=\"model-{}\">\n" + options + "\n            </select>\n        </td>\n"
     model_section = ''
@@ -60,11 +60,18 @@ def prompt_preview():
     use_case = request.args.get('use_case')
     prompt_library = import_module('promptimizer.prompt_library.'+use_case)
     model_section = select_model(ops.bedrock_model_catalog) + select_model(ops.azure_model_catalog)
-    use_case_specific = hidden.format('separator', prompt_library.separator)+\
-            hidden.format('task_system', prompt_library.task_system)
+    use_case_specific = hidden.format('separator', prompt_library.separator)
 
     if use_case == 'defect_detector':
-        use_case_specific += webpages.demonstrations_input
+        use_case_specific += webpages.prompt_preview_input.format('<b>Demonstrations</b> for enumerating space')+\
+        hidden.format('task_system', prompt_library.task_system)
+
+    elif use_case == 'search':
+        use_case_specific += webpages.prompt_preview_input.format('<b>Corpus</b> for RAG')+\
+                padded_tworows.format('Question', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
+    else:
+        use_case_specific += hidden.format('task_system', prompt_library.task_system)
+
 
     return webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case, 
                                              prompt_library.meta_system, prompt_library.meta_user, 
@@ -86,7 +93,6 @@ def model_and_hidden(X, use_case):
         use_case_specific += webpages.demonstrations_input
 
     return use_case_specific, select_model(ops.bedrock_model_catalog) + select_model(ops.azure_model_catalog)
-
 
 
 
@@ -325,10 +331,17 @@ def enumerate_prompts():
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
             s = s3.put_object(Body=request.files['demonstrations'].stream.read(),
                           Bucket=bucket, Key=demo_path)
-            s3.close()
             demo_path = 's3://' + ops.bucket + '/' + demo_path
             demonstrations = request.files['demonstrations'].filename
-            print (s['ResponseMetaData']['HTTPStatusCode'])
+            if 'ResponseMetaData' in s.keys():
+                print (s['ResponseMetaData'])
+            if use_case == 'search':
+                print("!!!\n remember, we're just sampling the input right now for prototyping.\n!!!!")
+                corpus = pd.read_csv('/'.join(['s3:/', bucket, key_path, 'output', random_string, 'demonstrations.csv']))
+                E = ops.get_embeddings(corpus['passage'].to_list())
+                s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + random_string + '.mbd')
+
+            s3.close()
     else:
         demo_path = ''
         demonstrations = ''
@@ -340,7 +353,12 @@ def enumerate_prompts():
         usage = user_db.dynamo_usage()
         usage_json = usage.get_usage(request.form)
 
-    prompt_user = request.form['meta_user']
+    if use_case == 'search':
+        prompt_user = "\n".join([request.form['meta_user'], request.form['task_system'], 
+                                 "\n", request.form['separator'], "\n"])
+    else:
+        prompt_user = request.form['meta_user']
+
     prompt_system = request.form['meta_system']
     n_batches = request.form['n_batches']
     batch_size = request.form['batch_size']
@@ -358,7 +376,7 @@ def enumerate_prompts():
             n = int(request.form[k])
             if n > 0:
                 if k[6:] in ops.azure_model_catalog.keys():
-                    azure_jsonls.append(ops.make_jsonl(prompt_system, prompt_user, 
+                    azure_jsonls.append(ops.make_jsonl(use_case, prompt_system, prompt_user,
                                                        ops.azure_model_catalog[k[6:]], .9, n, demo_path))
                     azure_models_enumerated[k[6:]] = n
 
@@ -373,7 +391,6 @@ def enumerate_prompts():
                 total_calls += n
                 sidebar += tworows.format(k[6:], n)
 
-
     jdb = user_db.dynamo_jobs()
     job_status = jdb.initialize({"email_address": request.form['email_address'], 'meta_system': request.form['meta_system'],
                                  "setup_id": random_string, 'meta_user': request.form['meta_user'], 'use_case': use_case,
@@ -381,7 +398,7 @@ def enumerate_prompts():
 
     write_log('enumerate_prompts (job_status): ' + str(job_status))
     if bedrock:
-        bedrock_jsonl = ops.make_jsonl(prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
+        bedrock_jsonl = ops.make_jsonl(use_case, prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
         jobArns = ops.batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
 
     else:
@@ -407,10 +424,12 @@ def enumerate_prompts():
             print(h, 'not in enumerate_prompts')
     sidebar += "<tr><td><b>Evaluator</b></td><td>"+request.form['evaluator']+"</td></tr>\n"+\
             tworows.format('N Batches', '10M') + tworows.format('Batch Size', batch_size) + "</table>"
-
-    message = "The prompt writing job has beend submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes."
+    if use_case == 'search':
+        message = 'Initialized by evaluating some random examples. At each iteration, we will combine the best results with the Question.'
+    else:
+        message = "The prompt writing job has been submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes."
     
-    response = make_response(webpages.check_status_form.format(css.style, webpages.navbar, sidebar, use_case, 'optimize', 
+    response = make_response(webpages.check_status_form.format(css.style, webpages.navbar, sidebar, use_case, 'evaluate', 
                                                                message, "<font color=\"lightslategrey\"><i>Waiting ...</i></font>" + hidden_variables))
     write_log('enumerate_prompts (quante_carlo_email): ' + request.form['email_address'])
     response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
@@ -420,6 +439,8 @@ def enumerate_prompts():
 
 
 tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
+
+padded_tworows =  "<tr><td></td><td><b>{}</b></td><td>{}</td><td></td></tr>\n"
 
 
 five_radio = """<tr>
@@ -615,6 +636,10 @@ def check_status():
     next_action = request.args.get('next_action')
     if next_action == 'optimize':
         return check_enumerate_status(request)
+    #elif next_action == 'evaluate':
+
+    #    return bbo.bayes_pipeline(use_case, batch_response.output_file_id, request.form, stats)
+
     else:
         return check_iterate_status(request)
 
@@ -742,12 +767,21 @@ def bayes():
                               '<table>' + tworows.format('Total Run Time', f'{minutes}m {seconds}s') + '</table>')
 
 
-
  
+def search():
+    corpus = pd.read_csv('/'.join(['s3:/', bucket, key_path, 'output', setup_id, 'demonstrations.csv']))
+    E = ops.get_embeddings(corpus['passage'].to_list())
+
+    s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
+
+    s3.put_object(Body="\n".join(E), Bucket=bucket, Key=request.form['key_path'] + '/embeddings/' + request.form['setup_id'] + '.mbd')
+    s3.close()
+    obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
+
 
 @app.route("/optimize", methods=['POST'])
 def pre_optimize():
-     
     subdirectories = [request.form['filename_id'] + '/' + request.form[k] for k in request.form.keys() if k[:6] == 'job_id']
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],

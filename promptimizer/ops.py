@@ -4,7 +4,7 @@ import json
 import os
 import re
 import openai
-
+import random
 
 bucket = 'sagemaker-us-east-2-344400919253'
 
@@ -15,7 +15,7 @@ bedrock_model_catalog = {'Nova Micro': 'us.amazon.nova-micro-v1:0',
                  'Nova-Lite': 'us.amazon.nova-micro-v1:0',
                  'Nova-Micro': 'us.amazon.nova-micro-v1:0',
                  'Nova Pro': 'us.amazon.nova-micro-v1:0',
-                 'Mark GPT': 'us.amazon.nova-micro-v1:0',
+                 'Mark GPT': 'arn:aws:sagemaker:us-east-2:344400919253:endpoint/endpoint-quick-start-g6yau',
                  'Claude-3.5 Haiku': 'us.amazon.nova-micro-v1:0',
                  'Claude-3 Haiku': 'us.amazon.nova-micro-v1:0',
                  'Claude-3.5 Sonnet': 'us.amazon.nova-micro-v1:0',
@@ -87,6 +87,9 @@ def get_embeddings(input_text):
         response_body = json.loads(response.get('body').read())
 
         E.append(','.join([str(x) for x in response_body['embedding']]))
+    
+    client.close()
+
     return E
 
 
@@ -94,29 +97,39 @@ def get_embeddings(input_text):
 
 
 
-def make_jsonl(prompt_system, prompt_user, model, temp, n_records, demo_path = None):
+def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, demo_path = None):
 
+        
     if demo_path:
-        demo_df = pd.read_csv(demo_path)
-        demo_true = demo_df[demo_df['output'] == True]
-        demo_false = demo_df[demo_df['output'] == False]
+        if use_case == 'defect_detector':
+            demo_df = pd.read_csv(demo_path)
+            demo_true = demo_df[demo_df['output'] == True]
+            demo_false = demo_df[demo_df['output'] == False]
+        elif use_case == 'search':
+            corpus = pd.read_csv(demo_path)
         demonstrations = True
     else:
         demonstrations = False
 
+    records = random.sample(range(corpus.shape[0]), n_records)
+
     jsonl = []
-    for i in range(n_records):
+    for i in records:
         if demonstrations:
-            if model in [azure_model_catalog[m] for m in azure_model_catalog.keys()]:
-                samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
-                        [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
-            else:
-                samples = [{"type": "image", "source":
-                            {"type": "base64", "media_type": "image/jpeg",
-                             "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_true['input'].sample(2)] + \
-                          [{"type": "image", "source":
-                            {"type": "base64", "media_type": "image/jpeg",
-                             "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_false['input'].sample(2)]
+            if use_case == 'defect_detector':
+                if model in [azure_model_catalog[m] for m in azure_model_catalog.keys()]:
+                    samples = [{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
+                              [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]
+                else:
+                    samples = [{"type": "image", "source":
+                               {"type": "base64", "media_type": "image/jpeg",
+                                "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_true['input'].sample(2)] + \
+                            [{"type": "image", "source":
+                             {"type": "base64", "media_type": "image/jpeg",
+                              "data": base64.standard_b64encode(httpx.get(ok).content).decode("utf-8")}} for s in demo_false['input'].sample(2)]
+            elif use_case == 'search':
+                samples = [{"type": "text", "text": corpus['passage'].iloc[i]}]
+
         else:
             samples = []
 

@@ -23,6 +23,17 @@ def write_log(message):
         f.write('[' + str(datetime.datetime.today()) +'] ' + message + "\n")
 
 
+def quantify_relevance(word):
+    if word == 'critical relevance':
+        return .9
+    elif word == 'very relevant':
+        return .7
+    elif word == 'not very relevant':
+        return .3
+    elif word == 'completely irrelevant':
+        return .1
+    else:
+        return .5
 
 def probability(word):
     if word == 'very likely':
@@ -37,7 +48,7 @@ def probability(word):
         return .5
 
 
-def score_prompts(filename_id, par):
+def score_prompts(use_case, filename_id, par):
 
     azure_client = openai.AzureOpenAI(
             api_key=os.environ['AZURE_OPENAI_KEY'],
@@ -67,7 +78,11 @@ def score_prompts(filename_id, par):
                         if par['label'] in content.keys():
                             prediction = content[par['label']]
                             #if ~np.isnan(prediction):
-                            prompt_ids.append(custom_ids_components[1])
+                            if use_case == 'search':
+                                prompt_ids.append(custom_ids_components[3])
+                            else:
+                                prompt_ids.append(custom_ids_components[1])
+
                             record_ids.append(custom_ids_components[2])
                             predictions.append(prediction)
 
@@ -79,10 +94,10 @@ def score_prompts(filename_id, par):
 
 
                     except Exception as e:
+                        print(jsponse['response']['body']['choices'][0])
                         print(custom_ids_components)
                         print("failed response will be ignored.")
                         print(e)
-
 
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
                                    'record_id': record_ids,
@@ -90,15 +105,18 @@ def score_prompts(filename_id, par):
                                    'usage': total_tokens})
     predictions_df.to_csv('s3://' + ops.bucket + '/' + par['setup_id'] + '/predictions/', index=False)
     print('get training data', par['key_path'], par['setup_id'])
-    training_df = pd.read_csv('s3://' + ops.bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
-    truth = training_df['output']
-
+    if use_case != 'search':
+        training_df = pd.read_csv('s3://' + ops.bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
+        truth = training_df['output']
 
     azure_client.close()
     if par['evaluator'].lower() == 'accuracy':
         return accuracy(predictions_df, truth)
     elif par['evaluator'].lower() == 'auc':
         return auc(predictions_df, truth)
+    elif par['evaluator'].lower() == 'prompt':
+        return llm_evaluation(predictions_df, '/'.join(['s3:/', ops.bucket, par['key_path'], 'output', 
+                                                        par['setup_id'], 'demonstrations.csv']), par['task_system'])
     else:
         write_log("score_prompts: ERROR No evaluator")
         return "ERROR", "No Evaluator"
@@ -123,7 +141,34 @@ def auc(predictions_df, truth):
     print(performance_report)
     return prompt_auc, performance_report +'</table>'
 
+def llm_evaluation(relevance_df, rag_path, question):
+    print(relevance_df)
+    #[quantify_relevance(x.lower()) for x in relevance_df['prediction']]
+    evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
+    relevance_score = {}
+    relevance_scores = []
+    for r, i in zip(relevance_df['prediction'], relevance_df['prompt_id']):
+        relevance_score[i] = quantify_relevance(r)
+        relevance_scores.append(quantify_relevance(r))
+    relevance_df['relevance'] = relevance_scores
+    rag = relevance_df.sort_values('relevance', ascending=False).iloc[0]
+    
+    snippets = pd.read_csv(rag_path)
 
+    azure_client = openai.AzureOpenAI(
+            api_key=os.environ['AZURE_OPENAI_KEY'],
+            api_version="2024-10-21",
+            azure_endpoint = os.environ["AZURE_ENDPOINT"]
+            )
+    response = azure_client.chat.completions.create(
+        model='gpt-4o',
+        messages=[{"role": "system", "content": "Be helpful.",
+                   "role": "user", "content": "\n".join([evaluator_prompt, "### QUESTION ###", question, "\n", '### REFERENCE ###',
+                                                         "\n",  snippets.iloc[int(rag['prompt_id'])]['passage'] ])}]
+                                                        
+            )
+    azure_client.close()
+    return relevance_score, response.choices[0].message.content
 
 
 def accuracy(predictions_df, truth):
@@ -160,18 +205,23 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-
-    df = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/training_data/' + parameters['setup_id'])
-
-    if ('input' in df.columns) & ('output' in df.columns):
-        preview_data = '<table border=0><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
-        for x in range(min(3, df.shape[0])):
-            preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
-            preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
-        preview_data += "</table>"
-
+    if use_case == 'search':
+        df = pd.read_csv('/'.join(['s3:/', ops.bucket, parameters['key_path'], 'output',  parameters['setup_id'], 'demonstrations.csv']))
     else:
-        return "Your file must contain columns with the names 'input' and 'output'."
+        df = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/training_data/' + parameters['setup_id'])
+        obj = s3.get_object(Bucket=ops.bucket, Key=parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/consolidated.csv')
+        prompts = obj['Body'].read().decode('utf-8').split("|")
+
+
+        if ('input' in df.columns) & ('output' in df.columns):
+            preview_data = '<table border=0><tr><td></td><td><b>Data Preivew</b></td><td></td></tr>'
+            for x in range(min(3, df.shape[0])):
+                preview_data += "<tr>\n    <td>"+str(x+1)+"</td>\n   <td>" + df['input'].iloc[x] + "</td>\n"
+                preview_data += "    <td>" + str(df['output'].iloc[x]) + "</td>\n</tr>\n"
+            preview_data += "</table>"
+
+        else:
+            return "Your file must contain columns with the names 'input' and 'output'."
 
     n_training_examples = df.shape[0]
 
@@ -179,33 +229,43 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     write_log('optimize (key_path): ' + parameters['key_path'])
     write_log('optimize (setup_id): ' + parameters['setup_id'])
 
-    obj = s3.get_object(Bucket=ops.bucket, Key=parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/consolidated.csv')
-    prompts = obj['Body'].read().decode('utf-8').split("|")
-    if parameters['examples'] != '':
-        examples = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/examples.csv')
+    #if parameters['examples'] != '':
+    #    examples = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/output/'+ parameters['setup_id'] + '/examples.csv')
 
+    query = {'method': 'POST',
+             'url': '/chat/completions',
+             'body': {
+                'model': 'gpt-4o-mini-batch',
+                'temperature': .03,
+                }
+             }
 
-    demo = []
     evaluation_jsonl = []
-    for prompt_id in prompt_ids:
-        prompt = prompts[prompt_id]
-        if parameters['examples'] != '':
-            demo = json.loads(examples[prompt_id])
-        print('P id: ', prompt_id)
-        for i, text in enumerate(df['input']):
-            query = {'custom_id': 'PROMPT_{}_{}'.format(prompt_id, i),
-                     'method': 'POST',
-                     'url': '/chat/completions',
-                     'body': {
-                         'model': 'gpt-4o-mini-batch',
-                        'temperature': .03,
-                         'messages': [
-                             {'role': 'system', 'content': parameters['task_system']},
-                             {'role': 'user', 'content': prompt + "\n" + parameters['separator']+"\n" + text}
-                            ] + demo
-                         }
-                     }
+    if use_case == 'search':
+        for rag_id in prompt_ids:
+            job = user_db.dynamo_jobs().get_job(parameters)
+            query['custom_id'] = 'RAG_DOCUMENT_ID_{}'.format(rag_id)
+            query['body']['messages'] = [{'role': 'system', 'content': job['meta_system']},
+                                         {'role': 'user', 'content': "\n".join([job['meta_user'],
+                                                                                job['task_system'],
+                                                                                job['separator'],
+                                                                                df['passage'].iloc[rag_id]])}
+                                         ] 
             evaluation_jsonl.append(json.dumps(query))
+    else:
+        demo = []
+        for prompt_id in prompt_ids:
+            prompt = prompts[prompt_id]
+            if parameters['examples'] != '':
+                demo = json.loads(examples[prompt_id])
+
+            print('P id: ', prompt_id)
+            for i, text in enumerate(df['input']):
+                query['custom_id'] = 'PROMPT_{}_{}'.format(prompt_id, i)
+                query['body']['messages'] = [{'role': 'system', 'content': parameters['task_system']},
+                                             {'role': 'user', 'content': prompt + "\n" + parameters['separator']+"\n" + text}
+                                             ] + demo
+                evaluation_jsonl.append(json.dumps(query))
 
     batch_response_id, azure_file_id = ops.azure_batch([evaluation_jsonl])
     write_log('optimize (azure_file_id): ' + str(azure_file_id))
@@ -259,7 +319,7 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     else:
         X['filename_ids'] = filename_id
 
-    scores_by_prompt, performance_report = score_prompts(filename_id, X)
+    scores_by_prompt, performance_report = score_prompts(use_case, filename_id, X)
 
     usage = user_db.dynamo_usage().get_usage({'email_address': X['email_address']})
     stats += webpages.tworows.format('Balance', usage['current_tokens'][-1]) + '</table>'
@@ -267,8 +327,12 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-    obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
-    prompts = obj['Body'].read().decode('utf-8').split("|")
+    if use_case == 'search':
+        corpus = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'output', par['setup_id'], 'demonstrations.csv']))
+
+    else:
+        obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
+        prompts = obj['Body'].read().decode('utf-8').split("|")
 
     obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
     embeddings_raw = [[float(x) for x in e.split(',')] for e in obj['Body'].read().decode('utf-8').split("\n")]
@@ -294,7 +358,10 @@ def bayes_pipeline(use_case, filename_id, par, stats):
             best_prompt_id = s
         print('prompt id:', s, ', score: ', scores_by_prompt[s])
 
-    print(prompts[int(best_prompt_id)])
+    if use_case == 'search':
+        print(corpus.iloc[int(best_prompt_id)])
+    else:
+        print(prompts[int(best_prompt_id)])
 
     gpr = GaussianProcessRegressor(kernel = Matern() + WhiteKernel())
     scores_ecdf = ecdf(Q)
@@ -311,7 +378,14 @@ def bayes_pipeline(use_case, filename_id, par, stats):
         print('might have the wrong evaluation function', par['evaluator'])
         best_idx = random.sample(range(len(batch_idx)), 1)[0]
     performance_report += "</table>"
-    best_prompt = " &nbsp; <i>Best Prompt So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(prompts[int(best_prompt_id)], max(Q))
+
+    if use_case == 'search':
+        print(corpus['passage'].iloc[int(best_prompt_id)])
+        best_prompt = " &nbsp; <i>Best Passage So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(corpus['passage'].iloc[int(best_prompt_id)], max(Q))
+
+    else:
+        print(prompts[int(best_prompt_id)])
+        best_prompt = " &nbsp; <i>Best Prompt So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(prompts[int(best_prompt_id)], max(Q))
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
     return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], X,

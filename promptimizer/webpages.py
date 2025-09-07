@@ -319,9 +319,9 @@ check_status_form = """<html>
 </html>
 """
 
-demonstrations_input ="""    <tr>
+prompt_preview_input ="""    <tr>
         <td></td>
-        <td><b>Demonstrations </b>when enumerating the space. <br> Currently, only implemented for defect_detection.</td>
+        <td>{}</td>
         <td><input type="file" name="demonstrations"></td>
         <td></td>
     </tr>
@@ -399,8 +399,10 @@ enumerate_prompts =  """
         <td></td>
         <td><b>Evaluation </b>method for label. Should match the prompt output.</td>
         <td><select name="evaluator">
+            <option value="none"></option>
             <option value="accuracy">Accuracy</option>
             <option value="auc">AUC</option>
+            <option value="prompt">LLM Evaluator</a>
             </select>
         </td>
         <td></td>
@@ -831,6 +833,24 @@ use_case_selector = """
                     <td>
                         AUC
                     </td>
+                </tr>
+                <tr>
+                    <td>
+                        <a href="/prompt_preview?use_case=search">Search</a>
+                    </td>
+                    <td> &nbsp;
+                    </td>
+                    <td> Relevance for Needle in a haystack RAG, cross-hop reasoning. 
+                    </td>
+                    <td> &nbsp;
+                    </td>
+                    <td> <a href="https://huggingface.co/datasets/rag-datasets/rag-mini-wikipedia">Hugging Face</a></td>
+                    <td> &nbsp; </td>
+                    <td>
+                       <a href="/data/search.csv"> Mini Wiki</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td> Evaluator </td>
                 </tr>
             </table>
             </center>
