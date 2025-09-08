@@ -203,9 +203,11 @@ review_loaded_file = """
 {}
 <hr>
 {}
-<form action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
+<form action="/bayes?use_case={}" method="POST" enctype="multipart/form-data">
 {}
 <br>
+<input type="hidden" name="n_batches" value="4096"></input>
+<input type="hidden" name="batch_size" value="4"></input>
 <input type="submit" value="Continue"></input>
 </form>
 
@@ -235,7 +237,7 @@ optimize_form = """<html>
         <tr>
         <td></td>
               <td>
-                  Training Data File
+                  Test Data File
               </td>
               <td><input type="file" name="data"></input>
               </td>
@@ -253,23 +255,25 @@ optimize_form = """<html>
         <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
         <td></td>
     </tr>
-
+    
     <tr>
         <td></td>
                 <td>
-                  Key Path (internal use)
+                    Examples (optional)<br>
+                    Make sure this ties out with your prompt.
                 </td>
                 <td>
-                  <input type="text" name="key_path" value="{}">
+                  <input type="file" name="examples"></input>
+                  <input type="hidden" name="key_path" value="{}"></input>
                 </td>
         <td></td>
     </tr>
     <tr>
-                <td></td>
-                <td>
-                    <input type="submit" value="Optimize!"></input>
-                </td>
-                <td></td>
+        <td></td>
+        <td>
+            <input type="submit" value="Optimize!"></input>
+        </td>
+        <td></td>
         <td></td>
     </tr>
 
@@ -315,9 +319,9 @@ check_status_form = """<html>
 </html>
 """
 
-demonstrations_input ="""    <tr>
+prompt_preview_input ="""    <tr>
         <td></td>
-        <td><b>Demonstrations </b>when enumerating the space. <br> Currently, only implemented for defect_detection.</td>
+        <td>{}</td>
         <td><input type="file" name="demonstrations"></td>
         <td></td>
     </tr>
@@ -395,8 +399,10 @@ enumerate_prompts =  """
         <td></td>
         <td><b>Evaluation </b>method for label. Should match the prompt output.</td>
         <td><select name="evaluator">
+            <option value="none"></option>
             <option value="accuracy">Accuracy</option>
             <option value="auc">AUC</option>
+            <option value="prompt">LLM Evaluator</a>
             </select>
         </td>
         <td></td>
@@ -437,7 +443,7 @@ enumerate_prompts =  """
         <td></td>
     </tr>
     {}
-    <input type="hidden" name="batch_size" value="4"></input>
+    <input type="hidden" name="batch_size" value="{}"></input>
     <input type="hidden" name="n_batches" value="4096"></input>
     <tr>
         <td></td>
@@ -827,6 +833,24 @@ use_case_selector = """
                     <td>
                         AUC
                     </td>
+                </tr>
+                <tr>
+                    <td>
+                        <a href="/prompt_preview?use_case=search">Search</a>
+                    </td>
+                    <td> &nbsp;
+                    </td>
+                    <td> Relevance for Needle in a haystack RAG, cross-hop reasoning. 
+                    </td>
+                    <td> &nbsp;
+                    </td>
+                    <td> <a href="https://huggingface.co/datasets/rag-datasets/rag-mini-wikipedia">Hugging Face</a></td>
+                    <td> &nbsp; </td>
+                    <td>
+                       <a href="/data/search.csv"> Mini Wiki</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td> Evaluator </td>
                 </tr>
             </table>
             </center>

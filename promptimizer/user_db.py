@@ -24,25 +24,37 @@ initial_df = pd.DataFrame({'prompt_id': [0],
 
 from boto3.dynamodb.conditions import Key
 
+def write_log(msg):
+    print(msg)
+    with open('/tmp/user_db.log', 'a') as f:
+        f.write('[' + str(dt.today()) +'] ' + msg + "\n")
 
 class dynamo_jobs:
     def __init__(self):
         dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
         self.db = dynamodb.Table('Jobs2')
-        self.initial_keys = ['email_address', 'setup_id', 'key_path', 'meta_user', 'use_case', 'meta_system']
-        self.other_keys = ['task_system', 'evaluator', 'separator', 'label', 'iterations', 'job_id']
+        self.initial_keys = ['email_address', 'setup_id', 'key_path', 'meta_user', 'use_case', 'meta_system', 'demonstrations']
+        self.other_keys = ['task_system', 'evaluator', 'separator', 'label', 'examples']
+        self.special_keys = ['iterations', 'job_id']
     def initialize(self, P):
 
         job_id = self.max_job_id(P)
         X = {'iterations': [], 'job_id': job_id + 1,
-             'evaluator': '', 'label': '', 'separator': '', 
              'transaction_timestamp': str(dt.now())}
+ 
         for n in self.initial_keys:
             if n in P.keys():
                 X[n] = P[n] 
             else:
-                print('missing ' + n)
+                write_log('initialize: missing ' + n)
                 return 'missing ' + n
+
+        for x in self.other_keys:
+            if x in P.keys():
+                X[n] = P[n]
+            else:  
+                X[x] = ''
+
         return self.db.put_item(Item = X)
 
     def max_job_id(self, P):
@@ -56,38 +68,47 @@ class dynamo_jobs:
         else:
             return 0
 
-    def get_jobs(self, P):
-        if 'setup_id' in P.keys():
-            response = self.db.query(
-                    KeyConditionExpression=Key('email_address').eq(P['email_address']) &
-                    Key('setup_id').eq(P['setup_id'])
-                    )
-            return response.get('Items')
+    def get_job(self, P):
+        response = self.db.query(
+                KeyConditionExpression=Key('email_address').eq(P['email_address']) &
+                Key('setup_id').eq(P['setup_id'])
+                )
+        item = response.get('Items')
+        if type(item) == list:
+            write_log('get_job was a list ' + P['email_address'] + ' ' + P['setup_id'])
+            return item[0]
         else:
-            response = self.db.query(
-                    KeyConditionExpression=Key('email_address').eq(P['email_address']) &
-                    Key('setup_id').between('0000000000000000', 'zzzzzzzzzzzzzzzz')
-                    )
+            write_log('get_job was not a list ' + P['email_address'] + ' ' + P['setup_id'])
+            return item
 
-            items = response.get('Items')
-            if items:
-                X = {}
-                keys = self.initial_keys + self.other_keys + ['transaction_timestamp']
+    def get_jobs(self, P):
+        response = self.db.query(
+                KeyConditionExpression=Key('email_address').eq(P['email_address']) &
+                Key('setup_id').between('0000000000000000', 'zzzzzzzzzzzzzzzz')
+                )
+
+        items = response.get('Items')
+        if items:
+            X = {}
+            keys = self.initial_keys + self.other_keys + self.special_keys + ['transaction_timestamp']
+            for k in keys:
+                X[k] = []
+            for item in items:
                 for k in keys:
-                    X[k] = []
-                for item in items:
-                    for k in keys:
-                        if k in item.keys():
-                            X[k].append(item[k])
-                return X
-            else:
-                return None
+                    if k in item.keys():
+                        X[k].append(item[k])
+                    else:
+                        write_log('get_jobs: missing ' + k)
+                        X[k].append('missing')
+            return X
+        else:
+            return None
 
     def update(self, P):
 
         X = { 'transaction_timestamp':  str(dt.now())}
 
-        for k in self.initial_keys + self.other_keys:
+        for k in self.initial_keys + self.other_keys + self.special_keys:
             if k not in P.keys():
                 return 'jobs::update missing ' + k
             X[k] = P[k]
