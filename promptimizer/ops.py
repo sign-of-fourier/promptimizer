@@ -105,13 +105,17 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
             demo_df = pd.read_csv(demo_path)
             demo_true = demo_df[demo_df['output'] == True]
             demo_false = demo_df[demo_df['output'] == False]
+            records = range(n_records)
         elif use_case == 'search':
             corpus = pd.read_csv(demo_path)
+            records = random.sample(range(corpus.shape[0]), n_records)
+
         demonstrations = True
     else:
         demonstrations = False
+        records = range(n_records)
 
-    records = random.sample(range(corpus.shape[0]), n_records)
+
 
     jsonl = []
     for i in records:

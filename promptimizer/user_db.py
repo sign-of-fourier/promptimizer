@@ -50,7 +50,10 @@ class dynamo_jobs:
                 return 'missing ' + n
 
         for x in self.other_keys:
-            X[x] = ''
+            if x in P.keys():
+                X[n] = P[n]
+            else:  
+                X[x] = ''
 
         return self.db.put_item(Item = X)
 
@@ -96,7 +99,7 @@ class dynamo_jobs:
                         X[k].append(item[k])
                     else:
                         write_log('get_jobs: missing ' + k)
-                        return 'missing ' + k
+                        X[k].append('missing')
             return X
         else:
             return None

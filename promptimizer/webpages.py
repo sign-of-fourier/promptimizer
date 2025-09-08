@@ -443,7 +443,7 @@ enumerate_prompts =  """
         <td></td>
     </tr>
     {}
-    <input type="hidden" name="batch_size" value="4"></input>
+    <input type="hidden" name="batch_size" value="{}"></input>
     <input type="hidden" name="n_batches" value="4096"></input>
     <tr>
         <td></td>

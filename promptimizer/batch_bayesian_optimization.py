@@ -64,7 +64,6 @@ def score_prompts(use_case, filename_id, par):
     prompt_tokens = []
 
     for i, filename in enumerate(par['filename_ids'].split(';')):
-        print(filename)
 
         for raw in azure_client.files.content(filename).text.strip().split("\n"):
             if True:
@@ -85,8 +84,7 @@ def score_prompts(use_case, filename_id, par):
 
                             record_ids.append(custom_ids_components[2])
                             predictions.append(prediction)
-
-
+                           
                             usage = jsponse['response']['body']['usage']
                             completion_tokens.append(usage['completion_tokens'])
                             prompt_tokens.append(usage['prompt_tokens'])
@@ -104,7 +102,6 @@ def score_prompts(use_case, filename_id, par):
                                    'prediction': predictions,
                                    'usage': total_tokens})
     predictions_df.to_csv('s3://' + ops.bucket + '/' + par['setup_id'] + '/predictions/', index=False)
-    print('get training data', par['key_path'], par['setup_id'])
     if use_case != 'search':
         training_df = pd.read_csv('s3://' + ops.bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
         truth = training_df['output']
@@ -128,47 +125,50 @@ def auc(predictions_df, truth):
     tokens = {}
     predict_proba = []
     target = []
-    print(predictions_df['prompt_id'].unique())
     for prompt_id in predictions_df['prompt_id'].unique():
         df = predictions_df[predictions_df['prompt_id'] == prompt_id]
         prompt_auc[prompt_id] = roc_auc_score([1 if truth[int(x)] == True else 0 for x in df['record_id']],
                                               [probability(x.lower()) for x in df['prediction']])
         tokens[prompt_id] = df['usage'].sum()
-    print(prompt_auc)
-    print(':::::::::::')
     for k in prompt_auc.keys():
         performance_report += webpages.threerows.format(k, prompt_auc[k], tokens[k])
-    print(performance_report)
     return prompt_auc, performance_report +'</table>'
 
 def llm_evaluation(relevance_df, rag_path, question):
-    print(relevance_df)
+    print(relevance_df[relevance_df['prediction'] != 'completely irrelevant'])
     #[quantify_relevance(x.lower()) for x in relevance_df['prediction']]
     evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
     relevance_score = {}
     relevance_scores = []
     for r, i in zip(relevance_df['prediction'], relevance_df['prompt_id']):
-        relevance_score[i] = quantify_relevance(r)
-        relevance_scores.append(quantify_relevance(r))
+        relevance = quantify_relevance(r)
+        relevance_score[i] = relevance
+        relevance_scores.append(relevance)
     relevance_df['relevance'] = relevance_scores
-    rag = relevance_df.sort_values('relevance', ascending=False).iloc[0]
-    
+
     snippets = pd.read_csv(rag_path)
+
+    rag = []
+
+    for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']:
+        print(x, snippets.iloc[int(x)]['passage'])
+        rag.append(snippets.iloc[int(x)]['passage'])
 
     azure_client = openai.AzureOpenAI(
             api_key=os.environ['AZURE_OPENAI_KEY'],
             api_version="2024-10-21",
             azure_endpoint = os.environ["AZURE_ENDPOINT"]
             )
+    references = "\n------\n".join(rag)
     response = azure_client.chat.completions.create(
         model='gpt-4o',
         messages=[{"role": "system", "content": "Be helpful.",
-                   "role": "user", "content": "\n".join([evaluator_prompt, "### QUESTION ###", question, "\n", '### REFERENCE ###',
-                                                         "\n",  snippets.iloc[int(rag['prompt_id'])]['passage'] ])}]
+                   "role": "user", "content": "\n".join([evaluator_prompt, "### QUESTION ###", question, "\n", '### REFERENCES ###',
+                                                         "\n", references ])}]
                                                         
             )
     azure_client.close()
-    return relevance_score, response.choices[0].message.content
+    return relevance_score, '<b>Answer to question using this snippet</b><br>' +  response.choices[0].message.content
 
 
 def accuracy(predictions_df, truth):
@@ -239,16 +239,15 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
                 'temperature': .03,
                 }
              }
-
     evaluation_jsonl = []
     if use_case == 'search':
         for rag_id in prompt_ids:
             job = user_db.dynamo_jobs().get_job(parameters)
             query['custom_id'] = 'RAG_DOCUMENT_ID_{}'.format(rag_id)
             query['body']['messages'] = [{'role': 'system', 'content': job['meta_system']},
-                                         {'role': 'user', 'content': "\n".join([job['meta_user'],
-                                                                                job['task_system'],
-                                                                                job['separator'],
+                                         {'role': 'user', 'content': "\n".join([job['meta_user'], "\n",
+                                                                                parameters['task_system'],"\n",
+                                                                                parameters['separator'],
                                                                                 df['passage'].iloc[rag_id]])}
                                          ] 
             evaluation_jsonl.append(json.dumps(query))
@@ -259,7 +258,6 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
             if parameters['examples'] != '':
                 demo = json.loads(examples[prompt_id])
 
-            print('P id: ', prompt_id)
             for i, text in enumerate(df['input']):
                 query['custom_id'] = 'PROMPT_{}_{}'.format(prompt_id, i)
                 query['body']['messages'] = [{'role': 'system', 'content': parameters['task_system']},
@@ -349,14 +347,12 @@ def bayes_pipeline(use_case, filename_id, par, stats):
 
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
 
-    print(scores_by_prompt)
     best = -1000
     s = [-1]
     for s in scores_by_prompt.keys():
         if scores_by_prompt[s] > best:
             best = scores_by_prompt[s]
             best_prompt_id = s
-        print('prompt id:', s, ', score: ', scores_by_prompt[s])
 
     if use_case == 'search':
         print(corpus.iloc[int(best_prompt_id)])
@@ -386,6 +382,9 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     else:
         print(prompts[int(best_prompt_id)])
         best_prompt = " &nbsp; <i>Best Prompt So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(prompts[int(best_prompt_id)], max(Q))
+    if type(best_idx) != int:
+        print('ERROR: best_idx not an integer')
+        best_idx = random.sample(range(len(batch_idx)), 1)[0]
     print(batch_idx[best_idx])
     print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
     return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], X,

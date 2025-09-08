@@ -72,10 +72,13 @@ def prompt_preview():
     else:
         use_case_specific += hidden.format('task_system', prompt_library.task_system)
 
-
+    if use_case == 'search':
+        batch_size = 16
+    else:
+        batch_size = 4
     return webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case, 
                                              prompt_library.meta_system, prompt_library.meta_user, 
-                                             prompt_library.label_name, use_case_specific, model_section, webpages.email_and_password)
+                                             prompt_library.label_name, use_case_specific, model_section, webpages.email_and_password, batch_size)
 
 
 hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
@@ -119,7 +122,7 @@ def user_library():
     response = make_response(webpages.enumerate_prompts.format(css.style, webpages.navbar, selection['use_case'].iloc[0],
                                                                selection['meta_system'].iloc[0],
                                                                selection['meta_user'].iloc[0], selection['label'].iloc[0], 
-                                                               use_case_specific, model_section, status_message))
+                                                               use_case_specific, model_section, status_message, batch_size))
     if status == 200:
         response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=7200)
         response.set_cookie('quante_carlo_password', request.form['password'], max_age=1798)
@@ -162,7 +165,6 @@ def load_job():
         if password:
             db = user_db.dynamo_jobs()
             job = db.get_job(request.form)
-            print(job['key_path'])
             write_log('load_job (setup_id): ' + job['setup_id'])
             ledger = user_db.dynamo_usage().get_usage(request.form)
             try: 
@@ -284,6 +286,7 @@ def view_prompts():
 def enumerate_prompts():
 
     use_case = request.args.get('use_case', '')
+    print('enumerate_prompts (request.form.keys())', request.form.keys())
 
     if request.form['submit'] == 'Save':
 
@@ -306,9 +309,14 @@ def enumerate_prompts():
             use_case_specific += hidden.format('email_address', request.form['email_address'])+\
                     hidden.format('password', request.form['password'])
 
+        if use_case == 'search':
+            batch_size = 32
+        else:
+            batch_size = 4
         response =  make_response(webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case,
-                                                 request.form['meta_system'],
-                                                 request.form['meta_user'], request.form['label'], use_case_specific, model_section, save_status))
+                                                                    request.form['meta_system'], request.form['meta_user'], 
+                                                                    request.form['label'], use_case_specific, model_section, 
+                                                                    save_status, batch_size))
         if status != 209:
             response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
             response.set_cookie('quante_carlo_password', request.form['password'], max_age=1800)
@@ -316,13 +324,12 @@ def enumerate_prompts():
         return response
 
 
-
     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
     timestamp = datetime.datetime.today()
     key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
 
-
-    write_log('enumerate_prompts (request.files.keys): ' + str(request.files.keys()))
+     
+    write_log('enumerate_prompts  2 (request.files.keys): ' + str(request.files.keys()))
     if 'demonstrations' in request.files.keys():
         if request.files['demonstrations'].filename:
             demo_path = f'{key_path}/output/{random_string}/demonstrations.csv'
@@ -346,7 +353,7 @@ def enumerate_prompts():
         demo_path = ''
         demonstrations = ''
     auth = authenticate(request.form)
-
+    print('finished demonstrations')
     if auth != 'Approved':
         return 'wrong credentials... wah, wah ...'
     else:
@@ -392,9 +399,15 @@ def enumerate_prompts():
                 sidebar += tworows.format(k[6:], n)
 
     jdb = user_db.dynamo_jobs()
-    job_status = jdb.initialize({"email_address": request.form['email_address'], 'meta_system': request.form['meta_system'],
-                                 "setup_id": random_string, 'meta_user': request.form['meta_user'], 'use_case': use_case,
-                                 'key_path': key_path, 'demonstrations': demonstrations})
+    job = {"email_address": request.form['email_address'], 'meta_system': request.form['meta_system'],
+           "setup_id": random_string, 'meta_user': request.form['meta_user'], 'use_case': use_case,
+           'key_path': key_path, 'demonstrations': demonstrations}
+
+    if use_case == 'search':
+        job['separator'] = request.form['separator']
+        job['task_system'] = request.form['task_system']
+    print(job)
+    job_status = jdb.initialize(job)
 
     write_log('enumerate_prompts (job_status): ' + str(job_status))
     if bedrock:
@@ -495,7 +508,6 @@ def check_enumerate_status(request):
         seconds = {}
 
         for batch_id in request.form['azure_job_id'].split(';'):
-            print(batch_id)
             batch_response = azure_client.batches.retrieve(batch_id)
             batch_ids[batch_id] = batch_response.status 
             minutes[batch_id] = round((now-batch_response.created_at)/60)
@@ -542,7 +554,6 @@ def check_enumerate_status(request):
         azure_finished = 1
         azure_status = ''
 
-    print('finished azure')
     if request.form['jobArn'] != '':
 
         jobArns = request.form['jobArn'].split(';')
@@ -694,7 +705,6 @@ def check_iterate_status(request):
         tworows.format('User', request.form['email_address'])+\
         tworows.format('Last Token Usage', sum(usage['total_tokens']))
 
-        print('calling bayes', request.form['label'])
         return bbo.bayes_pipeline(use_case, batch_response.output_file_id, request.form, stats)
     else:
         now = time.time()
@@ -802,7 +812,6 @@ def pre_optimize():
     write_log('pre_optimize (setup_id): ' + request.form['setup_id'])
     write_log('pre_optimize (len(prompts)): '+ str(len(prompts)))
     E = ops.get_embeddings(prompts)
-    print('done with embeddings')
 
     X = {}
     for x in request.form.keys():
@@ -832,7 +841,6 @@ def pre_optimize():
     s3.close()
 
     db = user_db.dynamo_jobs()
-    print(request.form['email_address'], request.form['setup_id'], request.form['task_system'])
     job = db.get_job(request.form)
     write_log('enumerate (request.job.keys) :' + str(request.form.keys()))
     for k in db.other_keys:
@@ -934,8 +942,6 @@ def get_user_jobs(email):
      for i in range(len(jobs['email_address'])):
          output += '<tr>'
          for k in keys:
-
-             print(i, k, jobs[k])
 
              if k == 'meta_user':
                  x = jobs[k][i][:200] + ' ...'
@@ -1039,11 +1045,7 @@ def prompt_manager(P, action):
                 #return 'file doesnt exist', -1
                 df = user_db.initial_df
 
-            print(action)
             if action == 'save_prompt':
-                print(df)
-                print("\n")
-                print(P['new_prompt'])
                                 
                 new_prompt = P['new_prompt']
                 new_prompt['prompt_id'] = df['prompt_id'].max()+1
