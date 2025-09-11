@@ -98,8 +98,9 @@ class dynamo_jobs:
                     if k in item.keys():
                         X[k].append(item[k])
                     else:
-                        write_log('get_jobs: missing ' + k)
+                        write_log('get_jobs: missing ' + k + ' - ' + P['email_address'])
                         X[k].append('missing')
+            
             return X
         else:
             return None

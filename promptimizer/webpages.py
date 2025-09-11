@@ -836,11 +836,11 @@ use_case_selector = """
                 </tr>
                 <tr>
                     <td>
-                        <a href="/prompt_preview?use_case=search">Search</a>
+                        <a href="/prompt_preview?use_case=rag">RAG</a>
                     </td>
                     <td> &nbsp;
                     </td>
-                    <td> Relevance for Needle in a haystack RAG, cross-hop reasoning. 
+                    <td> Relevance for Needle in a haystack RAG, cross-hop reasoning.
                     </td>
                     <td> &nbsp;
                     </td>
@@ -852,6 +852,26 @@ use_case_selector = """
                     <td> &nbsp; </td>
                     <td> Evaluator </td>
                 </tr>
+<!--
+                <tr>
+                    <td>
+                        <a href="/prompt_preview?use_case=search">Search</a>
+                    </td>
+                    <td> &nbsp;
+                    </td>
+                    <td> Search images. 
+                    </td>
+                    <td> &nbsp;
+                    </td>
+                    <td> <a href="https://huggingface.co/datasets/rag-datasets/rag-mini-wikipedia">Hugging Face</a></td>
+                    <td> &nbsp; </td>
+                    <td>
+                       <a href="/data/search.csv"> Mini Wiki</a>
+                    </td>
+                    <td> &nbsp; </td>
+                    <td> Evaluator </td>
+                </tr>
+-->
             </table>
             </center>
             </div>
