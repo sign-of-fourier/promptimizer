@@ -77,7 +77,7 @@ def score_prompts(use_case, filename_id, par):
                         if par['label'] in content.keys():
                             prediction = content[par['label']]
                             #if ~np.isnan(prediction):
-                            if use_case == 'search':
+                            if use_case == 'rag':
                                 prompt_ids.append(custom_ids_components[3])
                             else:
                                 prompt_ids.append(custom_ids_components[1])
@@ -102,7 +102,7 @@ def score_prompts(use_case, filename_id, par):
                                    'prediction': predictions,
                                    'usage': total_tokens})
     predictions_df.to_csv('s3://' + ops.bucket + '/' + par['setup_id'] + '/predictions/', index=False)
-    if use_case != 'search':
+    if use_case != 'rag':
         training_df = pd.read_csv('s3://' + ops.bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
         truth = training_df['output']
 
@@ -168,7 +168,7 @@ def llm_evaluation(relevance_df, rag_path, question):
                                                         
             )
     azure_client.close()
-    return relevance_score, '<b>Answer to question using this snippet</b><br>' +  response.choices[0].message.content
+    return relevance_score, '<b>Question</b>'+question+'<br><b>Answer to question using this snippet</b><br>' +  response.choices[0].message.content
 
 
 def accuracy(predictions_df, truth):
@@ -205,7 +205,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-    if use_case == 'search':
+    if use_case == 'rag':
         df = pd.read_csv('/'.join(['s3:/', ops.bucket, parameters['key_path'], 'output',  parameters['setup_id'], 'demonstrations.csv']))
     else:
         df = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/training_data/' + parameters['setup_id'])
@@ -235,12 +235,12 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     query = {'method': 'POST',
              'url': '/chat/completions',
              'body': {
-                'model': 'gpt-4o-mini-batch',
+                'model': 'gpt-4o-batch',
                 'temperature': .03,
                 }
              }
     evaluation_jsonl = []
-    if use_case == 'search':
+    if use_case == 'rag':
         for rag_id in prompt_ids:
             job = user_db.dynamo_jobs().get_job(parameters)
             query['custom_id'] = 'RAG_DOCUMENT_ID_{}'.format(rag_id)
@@ -325,15 +325,15 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-    if use_case == 'search':
+    if use_case == 'rag':
         corpus = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'output', par['setup_id'], 'demonstrations.csv']))
-
+        embeddings = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'embeddings', par['setup_id'] +'.mbd']))
+        embeddings_raw = [[float(x) for x in e.split(',')] for e in embeddings['embedding']]
     else:
         obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
         prompts = obj['Body'].read().decode('utf-8').split("|")
-
-    obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
-    embeddings_raw = [[float(x) for x in e.split(',')] for e in obj['Body'].read().decode('utf-8').split("\n")]
+        obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
+        embeddings_raw = [[float(x) for x in e.split(',')] for e in obj['Body'].read().decode('utf-8').split("\n")]
     scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
     unscored_embeddings = []
     unscored_embeddings_id_map = {}
@@ -354,7 +354,7 @@ def bayes_pipeline(use_case, filename_id, par, stats):
             best = scores_by_prompt[s]
             best_prompt_id = s
 
-    if use_case == 'search':
+    if use_case == 'rag':
         print(corpus.iloc[int(best_prompt_id)])
     else:
         print(prompts[int(best_prompt_id)])
@@ -375,7 +375,7 @@ def bayes_pipeline(use_case, filename_id, par, stats):
         best_idx = random.sample(range(len(batch_idx)), 1)[0]
     performance_report += "</table>"
 
-    if use_case == 'search':
+    if use_case == 'rag':
         print(corpus['passage'].iloc[int(best_prompt_id)])
         best_prompt = " &nbsp; <i>Best Passage So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(corpus['passage'].iloc[int(best_prompt_id)], max(Q))
 

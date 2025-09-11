@@ -1,3 +1,4 @@
+azure-ai-inference
 stripe
 gunicorn
 openai

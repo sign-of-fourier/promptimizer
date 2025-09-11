@@ -12,7 +12,7 @@ import random
 import string
 import openai
 from  promptimizer import webpages, css, ops, user_db
-
+import itertools
 import promptimizer.batch_bayesian_optimization as bbo
 import os
 #import llm_ops
@@ -66,13 +66,13 @@ def prompt_preview():
         use_case_specific += webpages.prompt_preview_input.format('<b>Demonstrations</b> for enumerating space')+\
         hidden.format('task_system', prompt_library.task_system)
 
-    elif use_case == 'search':
+    elif use_case == 'rag':
         use_case_specific += webpages.prompt_preview_input.format('<b>Corpus</b> for RAG')+\
                 padded_tworows.format('Question', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
     else:
         use_case_specific += hidden.format('task_system', prompt_library.task_system)
 
-    if use_case == 'search':
+    if use_case == 'rag':
         batch_size = 16
     else:
         batch_size = 4
@@ -281,6 +281,9 @@ def view_prompts():
     else:
         return webpages.sign_in.format(css.style, webpages.navbar, 'Timed out')
 
+#from multiprocessing import Pool
+import asyncio
+
 
 @app.route("/enumerate_prompts", methods=['POST'])
 def enumerate_prompts():
@@ -309,7 +312,7 @@ def enumerate_prompts():
             use_case_specific += hidden.format('email_address', request.form['email_address'])+\
                     hidden.format('password', request.form['password'])
 
-        if use_case == 'search':
+        if use_case == 'rag':
             batch_size = 32
         else:
             batch_size = 4
@@ -333,21 +336,35 @@ def enumerate_prompts():
     if 'demonstrations' in request.files.keys():
         if request.files['demonstrations'].filename:
             demo_path = f'{key_path}/output/{random_string}/demonstrations.csv'
-            print(demo_path)
             s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
             s = s3.put_object(Body=request.files['demonstrations'].stream.read(),
-                          Bucket=bucket, Key=demo_path)
+                              Bucket=bucket, Key=demo_path)
             demo_path = 's3://' + ops.bucket + '/' + demo_path
             demonstrations = request.files['demonstrations'].filename
-            if 'ResponseMetaData' in s.keys():
-                print (s['ResponseMetaData'])
-            if use_case == 'search':
-                print("!!!\n remember, we're just sampling the input right now for prototyping.\n!!!!")
-                corpus = pd.read_csv('/'.join(['s3:/', bucket, key_path, 'output', random_string, 'demonstrations.csv']))
-                E = ops.get_embeddings(corpus['passage'].to_list())
+            if use_case == 'rag':
+                corpus = pd.read_csv(demo_path)
+                n = int(corpus.shape[0]/5)+1
+                paths = []
+                ids = []
+                for i, b in zip(enumerate(itertools.batched(corpus['id'],n)),
+                                itertools.batched(corpus['passage'], n) ):
+                    ids.append(i[1])
+                    path = f's3://{bucket}/{key_path}/embeddings/{random_string}.{i[0]}'
+                    print(path)
+                    paths.append(path)
+                    pd.DataFrame({'id': i[1], 'passage': b}).to_csv(path, index=False)
+                loop = asyncio.new_event_loop()
+                tasks = [loop.create_task(ops.get_azure_embeddings(p)) for p in paths]
+                loop.run_until_complete(asyncio.wait(tasks))
+                loop.close()
+               
+                pd.concat([pd.read_csv(p + '.mbd') for p in paths]).sort_values('id').to_csv(f's3://{bucket}/{key_path}/embeddings/{random_string}.mbd', index=False)
+            elif use_case == 'search':
+                images = pd.read_csv('/'.join(['s3:/', bucket, key_path, 'output', random_string, 'demonstrations.csv']))
+                E = ops.get_image_embeddings(images['uri'].to_list())
                 s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + random_string + '.mbd')
-
+                return E[0]
             s3.close()
     else:
         demo_path = ''
@@ -360,7 +377,7 @@ def enumerate_prompts():
         usage = user_db.dynamo_usage()
         usage_json = usage.get_usage(request.form)
 
-    if use_case == 'search':
+    if use_case == 'rag':
         prompt_user = "\n".join([request.form['meta_user'], request.form['task_system'], 
                                  "\n", request.form['separator'], "\n"])
     else:
@@ -403,7 +420,7 @@ def enumerate_prompts():
            "setup_id": random_string, 'meta_user': request.form['meta_user'], 'use_case': use_case,
            'key_path': key_path, 'demonstrations': demonstrations}
 
-    if use_case == 'search':
+    if use_case in ['rag', 'search']:
         job['separator'] = request.form['separator']
         job['task_system'] = request.form['task_system']
     print(job)
@@ -437,12 +454,14 @@ def enumerate_prompts():
             print(h, 'not in enumerate_prompts')
     sidebar += "<tr><td><b>Evaluator</b></td><td>"+request.form['evaluator']+"</td></tr>\n"+\
             tworows.format('N Batches', '10M') + tworows.format('Batch Size', batch_size) + "</table>"
-    if use_case == 'search':
+    if use_case in ['rag', 'search']:
         message = 'Initialized by evaluating some random examples. At each iteration, we will combine the best results with the Question.'
+        next_action = 'evaluate'
     else:
         message = "The prompt writing job has been submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes."
+        next_action = 'optimize'
     
-    response = make_response(webpages.check_status_form.format(css.style, webpages.navbar, sidebar, use_case, 'evaluate', 
+    response = make_response(webpages.check_status_form.format(css.style, webpages.navbar, sidebar, use_case, next_action, 
                                                                message, "<font color=\"lightslategrey\"><i>Waiting ...</i></font>" + hidden_variables))
     write_log('enumerate_prompts (quante_carlo_email): ' + request.form['email_address'])
     response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
@@ -776,19 +795,7 @@ def bayes():
     return bbo.bayes_pipeline(request.args.get('use_case'), filename_ids, job, 
                               '<table>' + tworows.format('Total Run Time', f'{minutes}m {seconds}s') + '</table>')
 
-
  
-def search():
-    corpus = pd.read_csv('/'.join(['s3:/', bucket, key_path, 'output', setup_id, 'demonstrations.csv']))
-    E = ops.get_embeddings(corpus['passage'].to_list())
-
-    s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-
-    s3.put_object(Body="\n".join(E), Bucket=bucket, Key=request.form['key_path'] + '/embeddings/' + request.form['setup_id'] + '.mbd')
-    s3.close()
-    obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
-
 
 @app.route("/optimize", methods=['POST'])
 def pre_optimize():
