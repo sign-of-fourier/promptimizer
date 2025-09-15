@@ -381,11 +381,7 @@ def enumerate_prompts():
         usage = user_db.dynamo_usage()
         usage_json = usage.get_usage(request.form)
 
-    if use_case == 'rag':
-        prompt_user = "\n".join([request.form['meta_user'], request.form['task_system'], 
-                                 "\n", request.form['separator'], "\n"])
-    else:
-        prompt_user = request.form['meta_user']
+    meta_user = request.form['meta_user']
 
     prompt_system = request.form['meta_system']
     n_batches = request.form['n_batches']
@@ -404,7 +400,7 @@ def enumerate_prompts():
             n = int(request.form[k])
             if n > 0:
                 if k[6:] in ops.azure_model_catalog.keys():
-                    azure_jsonls.append(ops.make_jsonl(use_case, prompt_system, prompt_user,
+                    azure_jsonls.append(ops.make_jsonl(use_case, prompt_system, meta_user, request.form['task_system'],
                                                        ops.azure_model_catalog[k[6:]], .9, n, demo_path))
                     azure_models_enumerated[k[6:]] = n
 
@@ -432,7 +428,7 @@ def enumerate_prompts():
 
     write_log('enumerate_prompts (job_status): ' + str(job_status))
     if bedrock:
-        bedrock_jsonl = ops.make_jsonl(use_case, prompt_system, prompt_user, 'bedrock', .9, bedrock, demo_path)
+        bedrock_jsonl = ops.make_jsonl(use_case, prompt_system, request.form['meta_user'], task_system, 'bedrock', .9, bedrock, demo_path)
         jobArns = ops.batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
 
     else:
@@ -459,7 +455,7 @@ def enumerate_prompts():
     sidebar += "<tr><td><b>Evaluator</b></td><td>"+request.form['evaluator']+"</td></tr>\n"+\
             tworows.format('N Batches', '10M') + tworows.format('Batch Size', batch_size) + "</table>"
     if use_case in ['rag', 'search']:
-        message = 'Initialized by evaluating some random examples. At each iteration, we will combine the best results with the Question.'
+        message = 'Initialized by evaluating some random examples. At each iteration, we will combine the best results with the Query.'
         next_action = 'evaluate'
     else:
         message = "The prompt writing job has been submitted. In this next step, you will load your file and create the evaluation job.<br>\nOnly do this after the previous job completes."

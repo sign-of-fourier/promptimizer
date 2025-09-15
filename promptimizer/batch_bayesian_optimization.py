@@ -66,7 +66,6 @@ def score_prompts(use_case, filename_id, par):
     prompt_tokens = []
 
     for i, filename in enumerate(par['filename_ids'].split(';')):
-
         for raw in azure_client.files.content(filename).text.strip().split("\n"):
             if True:
                 jsponse = json.loads(raw)
@@ -98,6 +97,8 @@ def score_prompts(use_case, filename_id, par):
                         print(custom_ids_components)
                         print("failed response will be ignored.")
                         print(e)
+                else:
+                    print('Not matching',  jsponse['response']['body']['choices'][0]['message']['content'])
 
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
                                    'record_id': record_ids,
@@ -137,8 +138,6 @@ def auc(predictions_df, truth):
     return prompt_auc, performance_report +'</table>'
 
 def llm_evaluation(use_case, relevance_df, rag_path, question):
-    #[quantify_relevance(x.lower()) for x in relevance_df['prediction']]
-    evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
     relevance_score = {}
     relevance_scores = []
     for r, i in zip(relevance_df['prediction'], relevance_df['prompt_id']):
@@ -149,32 +148,28 @@ def llm_evaluation(use_case, relevance_df, rag_path, question):
 
     snippets = pd.read_csv(rag_path)
     if use_case == 'rag':
+        evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
+
         few_shot = [snippets.iloc[int(x)]['passage'] for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']]
         references = "\n------\n".join(few_shot)
         messages = [{"role": "system", "content": "Be helpful.",
-                     "role": "user", "content": "\n".join([evaluator_prompt, "### QUESTION ###", question, "\n", '### REFERENCES ###',
+                     "role": "user", "content": "\n".join([evaluator_prompt, "\n", "### QUESTION ###", question, "\n", '### REFERENCES ###',
                                                            "\n", references ])}]
+        azure_client = openai.AzureOpenAI(
+                api_key=os.environ['AZURE_OPENAI_KEY'],
+                api_version="2024-10-21",
+                azure_endpoint = os.environ["AZURE_ENDPOINT"]
+                )
+        response = azure_client.chat.completions.create(
+                model='gpt-4o',
+                messages = messages                                            
+                )
+        azure_client.close()
+        report = '<b>Question</b>'+question+'<br><b>Answer to question using this sample</b><br>' +  response.choices[0].message.content
     elif use_case == 'search':
+        report =  '<b>Query </b>'+question
 
-        few_shot = [x for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']]
-
-        images = [{'type': 'image_url','image_url': {'url': 'http://images.cocodataset.org/' + x }} for x in few_shot]
-        messages = [{"role": "system", "content": "Be helpful.",
-                     "role": "user", "content": [{'type': 'text', 'text': "### QUESTION ###\n" + question + "\n"}] + images}]
-
-
-    azure_client = openai.AzureOpenAI(
-            api_key=os.environ['AZURE_OPENAI_KEY'],
-            api_version="2024-10-21",
-            azure_endpoint = os.environ["AZURE_ENDPOINT"]
-            )
-    response = azure_client.chat.completions.create(
-        model='gpt-4o',
-        messages = messages
-                                                        
-            )
-    azure_client.close()
-    return relevance_score, '<b>Query </b>'+question+'<br><b>Answer to queery using this sample</b><br>' +  response.choices[0].message.content
+    return relevance_score, report
 
 
 def accuracy(predictions_df, truth):
@@ -253,8 +248,9 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
             query['custom_id'] = 'RAG_DOCUMENT_ID_{}'.format(idx)
             query['body']['messages'] = [{'role': 'system', 'content': job['meta_system']},
                                          {'role': 'user', 'content': "\n".join([job['meta_user'], "\n",
+                                                                                "### QUESTION ###",
                                                                                 parameters['task_system'],"\n",
-                                                                                parameters['separator'],
+                                                                                "### REFERENCES ###",
                                                                                 df['passage'].iloc[idx]])}
                                          ] 
         elif use_case == 'search':
@@ -262,9 +258,9 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
             samples = [{"type": "image_url","image_url": { "url": 'http://images.cocodataset.org/' + idx }}]
             query['custom_id'] = 'JOB_' + str(h) + '_RECORD_' + idx
             query['body']['messages'] = [{'role': 'system', 'content': job['meta_system']},
-                                         {'role': 'user', 'content': [{"type": "text", "text": job['meta_user']}] + samples}
+                                         {'role': 'user', 'content': [{"type": "text", "text": job['meta_user'] + "\n\n### QUERY ###\n" + parameters['task_system'] + "\n"}] + samples}
                                          ]
-            print('query',query)
+            #print('query',query)
 
         else:
             prompt = prompts[idx]
@@ -334,7 +330,6 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-
     unscored_embeddings = []
     unscored_embeddings_id_map = {}
 
@@ -351,11 +346,23 @@ def bayes_pipeline(use_case, filename_id, par, stats):
                 ct += 1
 
     elif use_case == 'search':
-        image_embedding_paths = s3.list_objects_v2(Bucket=ops.bucket, Prefix='kaggle/coco2012/embeddings')['Contents']
+
+        s3 = boto3.client('s3')
+        paginator = s3.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=ops.bucket, Prefix='kaggle/coco2012/embeddings')
+        
+        image_embedding_paths = []
+        for page in pages:
+            if 'Contents' in page:
+                image_embedding_paths += page['Contents']
+
+
+        #image_embedding_paths = s3.list_objects_v2(Bucket=ops.bucket, Prefix='kaggle/coco2012/embeddings')['Contents']
         E = [pickle.loads(s3.get_object(Bucket=ops.bucket, Key=e['Key'])['Body'].read()) for e in image_embedding_paths]
-        names = [re.sub('mbd', 'jpg', i['Key'].split('/')[-1]) for i in image_embedding_paths]
+        names = [re.sub('kaggle/coco2012/embeddings/', '', re.sub('mbd', 'jpg', i['Key'])) for i in image_embedding_paths]
         scored_embeddings = [e for e, n in zip(E, names) if n in scores_by_prompt.keys()]
         ct = 0
+        print(len(E), ' embeddings')
         for e, n in zip(E, names):
             if n not in scores_by_prompt.keys():
                 unscored_embeddings.append(e)
@@ -378,11 +385,14 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
 
     best = -1000
+    print(scores_by_prompt)
     s = [-1]
     for s in scores_by_prompt.keys():
         if scores_by_prompt[s] > best:
             best = scores_by_prompt[s]
             best_prompt_id = s
+    print('Q', Q)
+    print(len(scored_embeddings))
 
     gpr = GaussianProcessRegressor(kernel = Matern() + WhiteKernel())
     scores_ecdf = ecdf(Q)

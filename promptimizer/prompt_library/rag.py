@@ -6,12 +6,10 @@ Give your relevance from the following list: "critical relevance", "very relevan
 Give your rationale and ranking in that order in JSON format like this:
 {"rationale": "The text says nothing that would be useful in answering the question'",
  "relevance": "completely irrelevant"}
-
-### QUESTION ###
 """
 
 task_system = "What do wolves like to eat?"
-separator = '### TEXT ###'
+separator = '### QUESTION ###'
 #task_system = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
 label_name="relevance"
 

@@ -146,7 +146,7 @@ def get_embeddings(input_text, image=False):
     return E
 
 
-def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, demo_path = None):
+def make_jsonl(use_case, prompt_system, prompt_user, task_system, model, temp, n_records, demo_path = None):
 
         
     if demo_path:
@@ -163,7 +163,6 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
     else:
         demonstrations = False
         records = range(n_records)
-
 
 
     jsonl = []
@@ -191,8 +190,10 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
         if model != 'bedrock':
             if use_case == 'search':
                 custom_id = 'JOB_' + str(i) + '_RECORD_' + corpus['image_name'].iloc[i]
+                combined_prompt = f"{prompt_user}\n\n### QUERY ###\n{task_system}\n"
             else:
                 custom_id = 'JOB_{}_RECORD_{}'.format(model, i)
+                combined_prompt = "\n{meta_user}\n\n### QUESTION ###\n{task_system}\n\n### REFERENCES ###\n"
             query = {'custom_id': custom_id,
                          'method': 'POST',
                          'url': '/chat/completions',
@@ -201,7 +202,7 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
                              'temperature': temp,
                              'messages': [
                                  {'role': 'system', 'content': prompt_system},
-                                 {'role': 'user', 'content': [{"type": "text", "text": prompt_user}] + samples}
+                                 {'role': 'user', 'content': [{"type": "text", "text": combined_prompt}] + samples}
                                 ]
                             }
                         }
