@@ -15,6 +15,8 @@ from promptimizer import ops, user_db, css, webpages
 import boto3
 import numpy as np
 import datetime
+import pickle
+import more_itertools
 
 
 def write_log(message):
@@ -77,7 +79,7 @@ def score_prompts(use_case, filename_id, par):
                         if par['label'] in content.keys():
                             prediction = content[par['label']]
                             #if ~np.isnan(prediction):
-                            if use_case == 'rag':
+                            if use_case in ['rag', 'search']:
                                 prompt_ids.append(custom_ids_components[3])
                             else:
                                 prompt_ids.append(custom_ids_components[1])
@@ -101,8 +103,8 @@ def score_prompts(use_case, filename_id, par):
                                    'record_id': record_ids,
                                    'prediction': predictions,
                                    'usage': total_tokens})
-    predictions_df.to_csv('s3://' + ops.bucket + '/' + par['setup_id'] + '/predictions/', index=False)
-    if use_case != 'rag':
+    predictions_df.to_csv('s3://' + ops.bucket + '/' +par['key_path'] + '/predictions/' + par['setup_id'] + '.csv', index=False)
+    if use_case not in ['rag', 'search']:
         training_df = pd.read_csv('s3://' + ops.bucket + '/' + par['key_path'] + '/training_data/' + par['setup_id'])
         truth = training_df['output']
 
@@ -112,8 +114,8 @@ def score_prompts(use_case, filename_id, par):
     elif par['evaluator'].lower() == 'auc':
         return auc(predictions_df, truth)
     elif par['evaluator'].lower() == 'prompt':
-        return llm_evaluation(predictions_df, '/'.join(['s3:/', ops.bucket, par['key_path'], 'output', 
-                                                        par['setup_id'], 'demonstrations.csv']), par['task_system'])
+        return llm_evaluation(use_case, predictions_df, '/'.join(['s3:/', ops.bucket, par['key_path'], 'output', 
+                                                                  par['setup_id'], 'demonstrations.csv']), par['task_system'])
     else:
         write_log("score_prompts: ERROR No evaluator")
         return "ERROR", "No Evaluator"
@@ -134,8 +136,7 @@ def auc(predictions_df, truth):
         performance_report += webpages.threerows.format(k, prompt_auc[k], tokens[k])
     return prompt_auc, performance_report +'</table>'
 
-def llm_evaluation(relevance_df, rag_path, question):
-    print(relevance_df[relevance_df['prediction'] != 'completely irrelevant'])
+def llm_evaluation(use_case, relevance_df, rag_path, question):
     #[quantify_relevance(x.lower()) for x in relevance_df['prediction']]
     evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
     relevance_score = {}
@@ -147,28 +148,33 @@ def llm_evaluation(relevance_df, rag_path, question):
     relevance_df['relevance'] = relevance_scores
 
     snippets = pd.read_csv(rag_path)
+    if use_case == 'rag':
+        few_shot = [snippets.iloc[int(x)]['passage'] for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']]
+        references = "\n------\n".join(few_shot)
+        messages = [{"role": "system", "content": "Be helpful.",
+                     "role": "user", "content": "\n".join([evaluator_prompt, "### QUESTION ###", question, "\n", '### REFERENCES ###',
+                                                           "\n", references ])}]
+    elif use_case == 'search':
 
-    rag = []
+        few_shot = [x for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']]
 
-    for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']:
-        print(x, snippets.iloc[int(x)]['passage'])
-        rag.append(snippets.iloc[int(x)]['passage'])
+        images = [{'type': 'image_url','image_url': {'url': 'http://images.cocodataset.org/' + x }} for x in few_shot]
+        messages = [{"role": "system", "content": "Be helpful.",
+                     "role": "user", "content": [{'type': 'text', 'text': "### QUESTION ###\n" + question + "\n"}] + images}]
+
 
     azure_client = openai.AzureOpenAI(
             api_key=os.environ['AZURE_OPENAI_KEY'],
             api_version="2024-10-21",
             azure_endpoint = os.environ["AZURE_ENDPOINT"]
             )
-    references = "\n------\n".join(rag)
     response = azure_client.chat.completions.create(
         model='gpt-4o',
-        messages=[{"role": "system", "content": "Be helpful.",
-                   "role": "user", "content": "\n".join([evaluator_prompt, "### QUESTION ###", question, "\n", '### REFERENCES ###',
-                                                         "\n", references ])}]
+        messages = messages
                                                         
             )
     azure_client.close()
-    return relevance_score, '<b>Question</b>'+question+'<br><b>Answer to question using this snippet</b><br>' +  response.choices[0].message.content
+    return relevance_score, '<b>Query </b>'+question+'<br><b>Answer to queery using this sample</b><br>' +  response.choices[0].message.content
 
 
 def accuracy(predictions_df, truth):
@@ -205,7 +211,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
-    if use_case == 'rag':
+    if use_case in ['rag', 'search']:
         df = pd.read_csv('/'.join(['s3:/', ops.bucket, parameters['key_path'], 'output',  parameters['setup_id'], 'demonstrations.csv']))
     else:
         df = pd.read_csv('s3://' + ops.bucket + '/' + parameters['key_path'] + '/training_data/' + parameters['setup_id'])
@@ -240,31 +246,34 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
                 }
              }
     evaluation_jsonl = []
-    if use_case == 'rag':
-        for rag_id in prompt_ids:
+    
+    for h, idx in enumerate(prompt_ids):
+        if use_case == 'rag':
             job = user_db.dynamo_jobs().get_job(parameters)
-            query['custom_id'] = 'RAG_DOCUMENT_ID_{}'.format(rag_id)
+            query['custom_id'] = 'RAG_DOCUMENT_ID_{}'.format(idx)
             query['body']['messages'] = [{'role': 'system', 'content': job['meta_system']},
                                          {'role': 'user', 'content': "\n".join([job['meta_user'], "\n",
                                                                                 parameters['task_system'],"\n",
                                                                                 parameters['separator'],
-                                                                                df['passage'].iloc[rag_id]])}
+                                                                                df['passage'].iloc[idx]])}
                                          ] 
-            evaluation_jsonl.append(json.dumps(query))
-    else:
-        demo = []
-        for prompt_id in prompt_ids:
-            prompt = prompts[prompt_id]
-            if parameters['examples'] != '':
-                demo = json.loads(examples[prompt_id])
+        elif use_case == 'search':
+            job = user_db.dynamo_jobs().get_job(parameters)
+            samples = [{"type": "image_url","image_url": { "url": 'http://images.cocodataset.org/' + idx }}]
+            query['custom_id'] = 'JOB_' + str(h) + '_RECORD_' + idx
+            query['body']['messages'] = [{'role': 'system', 'content': job['meta_system']},
+                                         {'role': 'user', 'content': [{"type": "text", "text": job['meta_user']}] + samples}
+                                         ]
+            print('query',query)
 
+        else:
+            prompt = prompts[idx]
             for i, text in enumerate(df['input']):
-                query['custom_id'] = 'PROMPT_{}_{}'.format(prompt_id, i)
+                query['custom_id'] = 'PROMPT_{}_{}'.format(idx, i)
                 query['body']['messages'] = [{'role': 'system', 'content': parameters['task_system']},
                                              {'role': 'user', 'content': prompt + "\n" + parameters['separator']+"\n" + text}
-                                             ] + demo
-                evaluation_jsonl.append(json.dumps(query))
-
+                                             ] 
+        evaluation_jsonl.append(json.dumps(query))
     batch_response_id, azure_file_id = ops.azure_batch([evaluation_jsonl])
     write_log('optimize (azure_file_id): ' + str(azure_file_id))
     azure_file_ids = parameters['azure_file_id'] + ';' + azure_file_id[0]
@@ -305,7 +314,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     return webpages.check_status_form.format(css.style, webpages.navbar, sidebar + stats, use_case,
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
 
-
+img = "<td><a href=\"http://images.cocodataset.org/{}\"><img src=\"http://images.cocodataset.org/{}\" height=100></img></a></td>\n"
 def bayes_pipeline(use_case, filename_id, par, stats):
 
     X = {}
@@ -325,25 +334,46 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
+
+    unscored_embeddings = []
+    unscored_embeddings_id_map = {}
+
     if use_case == 'rag':
         corpus = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'output', par['setup_id'], 'demonstrations.csv']))
         embeddings = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'embeddings', par['setup_id'] +'.mbd']))
         embeddings_raw = [[float(x) for x in e.split(',')] for e in embeddings['embedding']]
+        scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
+        ct = 0
+        for x in range(len(embeddings_raw)):
+            if str(x) not in scores_by_prompt.keys():
+                unscored_embeddings.append(embeddings_raw[x])
+                unscored_embeddings_id_map[ct] = x
+                ct += 1
+
+    elif use_case == 'search':
+        image_embedding_paths = s3.list_objects_v2(Bucket=ops.bucket, Prefix='kaggle/coco2012/embeddings')['Contents']
+        E = [pickle.loads(s3.get_object(Bucket=ops.bucket, Key=e['Key'])['Body'].read()) for e in image_embedding_paths]
+        names = [re.sub('mbd', 'jpg', i['Key'].split('/')[-1]) for i in image_embedding_paths]
+        scored_embeddings = [e for e, n in zip(E, names) if n in scores_by_prompt.keys()]
+        ct = 0
+        for e, n in zip(E, names):
+            if n not in scores_by_prompt.keys():
+                unscored_embeddings.append(e)
+                unscored_embeddings_id_map[ct] = n
+                ct += 1
+
     else:
         obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
         prompts = obj['Body'].read().decode('utf-8').split("|")
         obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path'] + '/embeddings/' + par['setup_id'] + '.mbd')
         embeddings_raw = [[float(x) for x in e.split(',')] for e in obj['Body'].read().decode('utf-8').split("\n")]
-    scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
-    unscored_embeddings = []
-    unscored_embeddings_id_map = {}
-
-    ct = 0
-    for x in range(len(embeddings_raw)):
-        if str(x) not in scores_by_prompt.keys():
-            unscored_embeddings.append(embeddings_raw[x])
-            unscored_embeddings_id_map[ct] = x
-            ct += 1
+        scored_embeddings = [embeddings_raw[int(r)]  for r in scores_by_prompt.keys()]
+        ct = 0
+        for x in range(len(embeddings_raw)):
+            if str(x) not in scores_by_prompt.keys():
+                unscored_embeddings.append(embeddings_raw[x])
+                unscored_embeddings_id_map[ct] = x
+                ct += 1
 
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
 
@@ -353,11 +383,6 @@ def bayes_pipeline(use_case, filename_id, par, stats):
         if scores_by_prompt[s] > best:
             best = scores_by_prompt[s]
             best_prompt_id = s
-
-    if use_case == 'rag':
-        print(corpus.iloc[int(best_prompt_id)])
-    else:
-        print(prompts[int(best_prompt_id)])
 
     gpr = GaussianProcessRegressor(kernel = Matern() + WhiteKernel())
     scores_ecdf = ecdf(Q)
@@ -373,12 +398,20 @@ def bayes_pipeline(use_case, filename_id, par, stats):
         print(e)
         print('might have the wrong evaluation function', par['evaluator'])
         best_idx = random.sample(range(len(batch_idx)), 1)[0]
+        
     performance_report += "</table>"
 
     if use_case == 'rag':
         print(corpus['passage'].iloc[int(best_prompt_id)])
         best_prompt = " &nbsp; <i>Best Passage So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(corpus['passage'].iloc[int(best_prompt_id)], max(Q))
+    elif use_case == 'search':
+        predictions = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'predictions', par['setup_id'] + '.csv']))
+        predictions['score'] = [quantify_relevance(r) for r in predictions['prediction']]
 
+        best_prompt = '<table>'
+        for images in more_itertools.batched(predictions.sort_values('score', ascending=False).iloc[:4]['prompt_id'], 2):
+            best_prompt += '<tr>' + img.format(images[0], images[0]) + img.format(images[1], images[1])+ '</tr>'
+        best_prompt += '</table>'
     else:
         print(prompts[int(best_prompt_id)])
         best_prompt = " &nbsp; <i>Best Prompt So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(prompts[int(best_prompt_id)], max(Q))

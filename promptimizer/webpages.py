@@ -751,23 +751,23 @@ use_case_selector = """
             <table border=0>
                 <tr>
                     <td>
-                        <u>Use Case</u>
+                        <b><u><font size="+1">Use Case</u></b></font>
                     </td>
                     <td> &nbsp; </td>
                     <td>
-                        <u>Description</u>
+                        <b><u><font size="+1">Description</u></b></font>
                     </td>
                     <td> &nbsp; </td>
                     <td>
-                        <u>Source</u>
+                        <b><u><font size="+1">Source</u></b></font>
                     </td>
                     <td> &nbsp; </td>
                     <td>
-                        <u>Prepared File</u>
+                        <b><u><font size="+1">Prepared File</u></b></font>
                     </td>
                     <td> &nbsp; </td>
                     <td>
-                        <u> Metric</u>
+                        <b><u><font size="+1">Metric</u></b></font>
                     </td>
                 </tr>
                 <tr>
@@ -852,7 +852,6 @@ use_case_selector = """
                     <td> &nbsp; </td>
                     <td> Evaluator </td>
                 </tr>
-<!--
                 <tr>
                     <td>
                         <a href="/prompt_preview?use_case=search">Search</a>
@@ -871,7 +870,6 @@ use_case_selector = """
                     <td> &nbsp; </td>
                     <td> Evaluator </td>
                 </tr>
--->
             </table>
             </center>
             </div>

@@ -69,11 +69,15 @@ def prompt_preview():
     elif use_case == 'rag':
         use_case_specific += webpages.prompt_preview_input.format('<b>Corpus</b> for RAG')+\
                 padded_tworows.format('Question', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
+    elif use_case == 'search':
+        use_case_specific += webpages.prompt_preview_input.format('<b>Urls</b> of Images')+\
+                padded_tworows.format('Question', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
+
     else:
         use_case_specific += hidden.format('task_system', prompt_library.task_system)
 
-    if use_case == 'rag':
-        batch_size = 16
+    if use_case in ['rag', 'search']:
+        batch_size = 10
     else:
         batch_size = 4
     return webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case, 
@@ -360,11 +364,11 @@ def enumerate_prompts():
                 loop.close()
                
                 pd.concat([pd.read_csv(p + '.mbd') for p in paths]).sort_values('id').to_csv(f's3://{bucket}/{key_path}/embeddings/{random_string}.mbd', index=False)
-            elif use_case == 'search':
-                images = pd.read_csv('/'.join(['s3:/', bucket, key_path, 'output', random_string, 'demonstrations.csv']))
-                E = ops.get_image_embeddings(images['uri'].to_list())
-                s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + random_string + '.mbd')
-                return E[0]
+            #elif use_case == 'search':
+            #    images = pd.read_csv('/'.join(['s3:/', bucket, key_path, 'output', random_string, 'demonstrations.csv']))
+            #    E = ops.get_image_embeddings(images['uri'].to_list())
+            #    s3.put_object(Body="\n".join(E), Bucket=bucket, Key=key_path + '/embeddings/' + random_string + '.mbd')
+            #    return E[0]
             s3.close()
     else:
         demo_path = ''
@@ -546,7 +550,9 @@ def check_enumerate_status(request):
 
             output_file_id= batch_response.output_file_id
 
-
+        print(output_file_ids)
+        print(len(output_file_ds))
+        
         if completed == len(request.form['azure_job_id'].split(';')):
 
             for output_file_id in output_file_ids:
@@ -704,9 +710,9 @@ def check_iterate_status(request):
     output_file_ids = []
     batch_response = azure_client.batches.retrieve(request.form['azure_job_id'])
     azure_client.close()
+    print('batch_response: ' + str(batch_response))
     if batch_response.status == 'failed':
         return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
-
     elif batch_response.status == 'completed':
 
         azure_prompts, usage = azure_file(batch_response.output_file_id)

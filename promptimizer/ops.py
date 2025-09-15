@@ -70,64 +70,6 @@ from azure.core.credentials import AzureKeyCredential
 from io import BytesIO
 from azure.ai.inference.models import ImageEmbeddingInput
 
-def get_image_embeddings(images):
-
-    s3 = boto3.client(service_name="s3", region_name='us-east-2',
-                          aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-    path = 'kaggle/coco2012/' + images[0]
-    print(path)
-    obj = s3.get_object(Bucket=bucket, Key=path)
-    with open('/tmp/image.jpg', 'wb') as f:
-        f.write(obj['Body'].read())
-    #image = Image.open(BytesIO(obj['Body'].read()))
-
-    #import os
-    #from azure.ai.inference import ImageEmbeddingsClient
-    #from azure.core.credentials import AzureKeyCredential
-    print (ImageEmbeddingsClient.__dict__.keys())
-    client = ImageEmbeddingsClient(
-            credential=AzureKeyCredential(os.environ['AZURE_OPENAI_KEY']),
-            api_version="2024-10-21",
-            #endpoint = 'https://quantecarlovision.cognitiveservices.azure.com/',#os.environ["AZURE_ENDPOINT"],
-            endpoint = os.environ["AZURE_ENDPOINT"],
-            #model = 'gpt-4o',
-            model = 'Cohere-embed-v3-english'
-            )
-
-
-    image_input= ImageEmbeddingInput.load(image_file='/tmp/image.jpg', image_format="jpg")
-    response = client.embed(
-            input=[ image_input ],
-            )
-
-
- #   client = ImageEmbeddingsClient(
- #       endpoint="https://<resource>.services.ai.azure.com/models",
- #   credential=AzureKeyCredential(os.environ["AZURE_INFERENCE_CREDENTIAL"]),
- #   model="Cohere-embed-v3-english"
-#)
-
-
-
-    #client = boto3.client(service_name="bedrock-runtime", region_name='us-east-2',
-    #                      aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-    #                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-
-    #embedding_model_id = 'amazon.titan-embed-image-v1'
-
-    #accept = "application/json"
-    #content_type = "application/json"
-    
-    body = [json.dumps({"inputImage": '/'.join(['s3:/', bucket, 'kaggle/coco2012', uri]), "inputText": "hi", "embeddingConfig": {"outputEmbeddingLength": 256}}) for uri in images]
-    response = client.embed(body[0])
-    #response = client.invoke_model(
-    #    body=body[0], modelId=embedding_model_id, accept=accept, contentType=content_type
-    #)
-
-    response_body = json.loads(response.get('body').read())
-    client.close()
-    return response_body['embedding']
 
 
 async def get_azure_embeddings(path):
@@ -147,6 +89,33 @@ async def get_azure_embeddings(path):
     except Exception as e:
         return str(e)
     
+
+
+def get_image_embeddings(paths):
+
+    if True:
+
+
+        embed_key = os.environ['COHERE_KEY']
+        embed_endpoint = "https://markpshipman-2243-resource.services.ai.azure.com/models"
+        embed_model_name = "embed-v-4-0"
+
+        client = EmbeddingsClient(
+            endpoint=embed_endpoint,
+            credential=AzureKeyCredential(embed_key)
+        )
+        data = 'data:image/{img_type};base64,' + base64.standard_b64encode(request.files['image'].stream.read()).decode('utf-8')
+        response = client.embed(
+            input = [data],
+            model=embed_model_name
+        )
+
+        return [item.index for item in response.data], [item.embedding for item in response.data], response.usage
+
+
+
+
+
 def get_embeddings(input_text, image=False):
 
     client = boto3.client(service_name="bedrock-runtime", region_name='us-east-2',
@@ -214,13 +183,17 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
             elif use_case == 'rag':
                 samples = [{"type": "text", "text": corpus['passage'].iloc[i]}]
             elif use_case == 'search':
-                samples = [{"type": "image_url","image_url": { "url": demo_true['image_url'].iloc[i]}}]
+                samples = [{"type": "image_url","image_url": { "url": 'http://images.cocodataset.org/' + corpus['image_name'].iloc[i]}}]
 
         else:
             samples = []
 
         if model != 'bedrock':
-            query = {'custom_id': 'JOB_{}_RECORD_{}'.format(model, i),
+            if use_case == 'search':
+                custom_id = 'JOB_' + str(i) + '_RECORD_' + corpus['image_name'].iloc[i]
+            else:
+                custom_id = 'JOB_{}_RECORD_{}'.format(model, i)
+            query = {'custom_id': custom_id,
                          'method': 'POST',
                          'url': '/chat/completions',
                          'body': {
