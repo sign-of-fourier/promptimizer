@@ -5,6 +5,7 @@ import os
 import re
 import openai
 import random
+import chromadb
 
 bucket = 'sagemaker-us-east-2-344400919253'
 
@@ -70,64 +71,6 @@ from azure.core.credentials import AzureKeyCredential
 from io import BytesIO
 from azure.ai.inference.models import ImageEmbeddingInput
 
-def get_image_embeddings(images):
-
-    s3 = boto3.client(service_name="s3", region_name='us-east-2',
-                          aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-    path = 'kaggle/coco2012/' + images[0]
-    print(path)
-    obj = s3.get_object(Bucket=bucket, Key=path)
-    with open('/tmp/image.jpg', 'wb') as f:
-        f.write(obj['Body'].read())
-    #image = Image.open(BytesIO(obj['Body'].read()))
-
-    #import os
-    #from azure.ai.inference import ImageEmbeddingsClient
-    #from azure.core.credentials import AzureKeyCredential
-    print (ImageEmbeddingsClient.__dict__.keys())
-    client = ImageEmbeddingsClient(
-            credential=AzureKeyCredential(os.environ['AZURE_OPENAI_KEY']),
-            api_version="2024-10-21",
-            #endpoint = 'https://quantecarlovision.cognitiveservices.azure.com/',#os.environ["AZURE_ENDPOINT"],
-            endpoint = os.environ["AZURE_ENDPOINT"],
-            #model = 'gpt-4o',
-            model = 'Cohere-embed-v3-english'
-            )
-
-
-    image_input= ImageEmbeddingInput.load(image_file='/tmp/image.jpg', image_format="jpg")
-    response = client.embed(
-            input=[ image_input ],
-            )
-
-
- #   client = ImageEmbeddingsClient(
- #       endpoint="https://<resource>.services.ai.azure.com/models",
- #   credential=AzureKeyCredential(os.environ["AZURE_INFERENCE_CREDENTIAL"]),
- #   model="Cohere-embed-v3-english"
-#)
-
-
-
-    #client = boto3.client(service_name="bedrock-runtime", region_name='us-east-2',
-    #                      aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
-    #                      aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
-
-    #embedding_model_id = 'amazon.titan-embed-image-v1'
-
-    #accept = "application/json"
-    #content_type = "application/json"
-    
-    body = [json.dumps({"inputImage": '/'.join(['s3:/', bucket, 'kaggle/coco2012', uri]), "inputText": "hi", "embeddingConfig": {"outputEmbeddingLength": 256}}) for uri in images]
-    response = client.embed(body[0])
-    #response = client.invoke_model(
-    #    body=body[0], modelId=embedding_model_id, accept=accept, contentType=content_type
-    #)
-
-    response_body = json.loads(response.get('body').read())
-    client.close()
-    return response_body['embedding']
 
 
 async def get_azure_embeddings(path):
@@ -147,6 +90,33 @@ async def get_azure_embeddings(path):
     except Exception as e:
         return str(e)
     
+
+
+def get_image_embeddings(paths):
+
+    if True:
+
+
+        embed_key = os.environ['COHERE_KEY']
+        embed_endpoint = "https://markpshipman-2243-resource.services.ai.azure.com/models"
+        embed_model_name = "embed-v-4-0"
+
+        client = EmbeddingsClient(
+            endpoint=embed_endpoint,
+            credential=AzureKeyCredential(embed_key)
+        )
+        data = 'data:image/{img_type};base64,' + base64.standard_b64encode(request.files['image'].stream.read()).decode('utf-8')
+        response = client.embed(
+            input = [data],
+            model=embed_model_name
+        )
+
+        return [item.index for item in response.data], [item.embedding for item in response.data], response.usage
+
+
+
+
+
 def get_embeddings(input_text, image=False):
 
     client = boto3.client(service_name="bedrock-runtime", region_name='us-east-2',
@@ -177,7 +147,121 @@ def get_embeddings(input_text, image=False):
     return E
 
 
-def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, demo_path = None):
+
+def get_image_embedding_paths():
+    s3 = boto3.client('s3')
+    paginator = s3.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=bucket, Prefix='kaggle/coco2012/embeddings')
+    image_embedding_paths = []
+    for page in pages:
+        if 'Contents' in page:
+            image_embedding_paths += [k['Key'] for k in page['Contents']]
+
+    return [re.sub('kaggle/coco2012/embeddings/', '', x) for x in image_embedding_paths]
+
+
+
+
+search_prompt = """I'm going to give you a query. Give me some search terms that I can use to search for related information. 
+  I'm going to try many searches. It's better to get too many and some of them are not right as opposed to too few and I fail to get the correct information.
+  So, it's OK to lots of terms as long as you think they are relevant.
+
+  Give your answer in a bracked list format like this:
+
+  ### EXAMPLE ###
+  QUERY: Images of children playing in the street.
+  ['playing children', 'children', 'playing']
+
+  Do not provide any other text or rationale. Only give a list of search terms.
+
+
+  ### QUERY ###
+  {}
+
+  """
+
+
+
+def get_search_terms(query):
+    messages = [{"role": "system", "content": "You are a data search agent. Your job is come up with key terms to use to search an archive of images indexed by captions.",
+                 "role": "user", "content": search_prompt.format(query)}]
+    azure_client = openai.AzureOpenAI(
+            api_key=os.environ['AZURE_OPENAI_KEY'],
+            api_version="2024-10-21",
+            azure_endpoint = os.environ["AZURE_ENDPOINT"]
+            )
+    response = azure_client.chat.completions.create(
+            model='gpt-4o',
+            messages = messages
+            )
+    return response.choices[0].message.content
+
+def get_starter_records(query, n_results):
+
+
+    try:
+        terms = eval(get_search_terms(query))
+    except Exception as e:
+        print(e)
+        print("Failed to get search terms")
+
+    client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
+    obj = client.get_object(Bucket=bucket, Key='kaggle/coco2012/annotations/captions_train2017.json')
+    train_captions = json.loads(obj['Body'].read().decode('utf-8'))
+
+    captions = {}
+    for k in train_captions['annotations']:
+        captions[k['image_id']] =  k['caption']
+    images = {}
+    for k in train_captions['images']:
+        images[k['id']] =  k['coco_url']
+
+
+    mbed_paths = get_image_embedding_paths()
+
+    chroma_client = chromadb.PersistentClient('chroma')
+    collection = chroma_client.get_collection(name="coco2017")
+    results = collection.query(
+            query_texts=terms,
+            n_results=n_results
+            )
+    relevant_images = {}
+    distance_by_image = {}
+    caption_by_image = {}
+    term_by_image = {}
+    for term in terms:
+        for idx, doc, dist, md in zip(results['ids'], results['documents'], results['distances'], results['metadatas']):
+            for i, c, t, m in zip(idx, doc, dist, md):
+                k = int(m['image_id'])
+                keep = False
+                if k in distance_by_image.keys():
+                    if distance_by_image[k] > t:
+                        keep = True
+                else:
+                    keep = True
+                if keep:
+                    image_stem = re.sub('http://images.cocodataset.org/', '', images[k])
+                    if re.sub('jpg', 'mbd', image_stem) in mbed_paths:
+                        term_by_image[k] = term
+                        distance_by_image[k] = t
+                        relevant_images[k] = image_stem
+                        caption_by_image[k] = c
+                    else:
+                        print(image_stem, images[k], k, mbed_paths[0])
+
+
+    keys = relevant_images.keys()
+    print(f'found {len(keys)} relevant images')
+    return pd.DataFrame({'id': [str(x) for x in keys],
+                         'term': [term_by_image[x] for x in keys],
+                         'distance': [distance_by_image[x] for x in keys],
+                         'caption': [caption_by_image[x] for x in keys],
+                         'image_name': [re.sub('http://images.cocodataset.org/', '', relevant_images[x]) for x in keys]}).sort_values('distance', ascending=True)
+
+
+
+def make_jsonl(use_case, prompt_system, prompt_user, task_system, model, temp, n_records, demo_path = None):
 
         
     if demo_path:
@@ -186,15 +270,22 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
             demo_true = demo_df[demo_df['output'] == True]
             demo_false = demo_df[demo_df['output'] == False]
             records = range(n_records)
-        elif use_case in ['rag', 'search']:
+        elif use_case == 'rag':
             corpus = pd.read_csv(demo_path)
             records = random.sample(range(corpus.shape[0]), n_records)
+        elif use_case == 'search':
+            #corpus = pd.read_csv(demo_path)
+            corpus = get_starter_records(task_system, 4)
+            print(corpus)
+            if corpus.shape[0] > n_records:
+                records = random.sample(range(corpus.shape[0]), n_records)
+            else:
+                records = range(corpus.shape[0])
 
         demonstrations = True
     else:
         demonstrations = False
         records = range(n_records)
-
 
 
     jsonl = []
@@ -214,13 +305,19 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
             elif use_case == 'rag':
                 samples = [{"type": "text", "text": corpus['passage'].iloc[i]}]
             elif use_case == 'search':
-                samples = [{"type": "image_url","image_url": { "url": demo_true['image_url'].iloc[i]}}]
+                samples = [{"type": "image_url","image_url": { "url": 'http://images.cocodataset.org/' + corpus['image_name'].iloc[i]}}]
 
         else:
             samples = []
 
         if model != 'bedrock':
-            query = {'custom_id': 'JOB_{}_RECORD_{}'.format(model, i),
+            if use_case == 'search':
+                custom_id = 'JOB_' + str(i) + '_RECORD_' + corpus['image_name'].iloc[i]
+                combined_prompt = f"{prompt_user}\n\n### QUERY ###\n{task_system}\n"
+            else:
+                custom_id = 'JOB_{}_RECORD_{}'.format(model, i)
+                combined_prompt = f"\n{prompt_user}\n\n### QUESTION ###\n{task_system}\n\n### REFERENCES ###\n"
+            query = {'custom_id': custom_id,
                          'method': 'POST',
                          'url': '/chat/completions',
                          'body': {
@@ -228,12 +325,12 @@ def make_jsonl(use_case, prompt_system, prompt_user, model, temp, n_records, dem
                              'temperature': temp,
                              'messages': [
                                  {'role': 'system', 'content': prompt_system},
-                                 {'role': 'user', 'content': [{"type": "text", "text": prompt_user}] + samples}
+                                 {'role': 'user', 'content': [{"type": "text", "text": combined_prompt}] + samples}
                                 ]
                             }
                         }
         else:
-            query = bedrock_json("JOB_{}_RECORD_{}".format(model, i), system, user, samples, temp)
+            query = bedrock_json("JOB_{}_RECORD_{}".format(model, i), prompt_system, prompt_user, samples, temp)
         jsonl.append(json.dumps(query))
 
     return jsonl
@@ -252,7 +349,6 @@ def bedrock_json(record_id, system, user, samples, temp):
 def batchrock(use_case, jsonl, models, random_string, key_path):
 
     jobArns = []
-    print(os.environ['AWS_ACCESS_KEY'])
     try:
         client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
