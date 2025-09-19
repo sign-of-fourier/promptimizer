@@ -63,10 +63,12 @@ def score_prompts(use_case, filename_id, par):
     completion_tokens = []
     total_tokens = []
     prompt_tokens = []
-
+    ct = 0
+    print('score_prompt (filename_ids)', par['filename_ids'])
     for i, filename in enumerate(par['filename_ids'].split(';')):
 
         for raw in azure_client.files.content(filename).text.strip().split("\n"):
+            ct += 1
             if True:
                 jsponse = json.loads(raw)
                 custom_ids_components = jsponse['custom_id'].split('_')
@@ -97,6 +99,8 @@ def score_prompts(use_case, filename_id, par):
                         print(custom_ids_components)
                         print("failed response will be ignored.")
                         print(e)
+                else:
+                    print('no match', jsponse['response']['body']['choices'][0]['message']['content'])
 
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
                                    'record_id': record_ids,
@@ -378,6 +382,7 @@ def bayes_pipeline(use_case, filename_id, par, stats):
                 ct += 1
 
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
+    print('scores_by_prompt', scores_by_prompt)
 
     best = -1000
     s = [-1]

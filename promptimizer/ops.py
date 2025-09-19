@@ -316,7 +316,7 @@ def make_jsonl(use_case, prompt_system, prompt_user, task_system, model, temp, n
                 combined_prompt = f"{prompt_user}\n\n### QUERY ###\n{task_system}\n"
             else:
                 custom_id = 'JOB_{}_RECORD_{}'.format(model, i)
-                combined_prompt = "\n{meta_user}\n\n### QUESTION ###\n{task_system}\n\n### REFERENCES ###\n"
+                combined_prompt = f"\n{prompt_user}\n\n### QUESTION ###\n{task_system}\n\n### REFERENCES ###\n"
             query = {'custom_id': custom_id,
                          'method': 'POST',
                          'url': '/chat/completions',
@@ -349,7 +349,6 @@ def bedrock_json(record_id, system, user, samples, temp):
 def batchrock(use_case, jsonl, models, random_string, key_path):
 
     jobArns = []
-    print(os.environ['AWS_ACCESS_KEY'])
     try:
         client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                               aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
