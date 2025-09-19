@@ -71,7 +71,7 @@ def prompt_preview():
                 padded_tworows.format('Question', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
     elif use_case == 'search':
         use_case_specific += webpages.prompt_preview_input.format('<b>Urls</b> of Images')+\
-                padded_tworows.format('Question', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
+                padded_tworows.format('Query', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
 
     else:
         use_case_specific += hidden.format('task_system', prompt_library.task_system)
@@ -428,7 +428,7 @@ def enumerate_prompts():
 
     write_log('enumerate_prompts (job_status): ' + str(job_status))
     if bedrock:
-        bedrock_jsonl = ops.make_jsonl(use_case, prompt_system, request.form['meta_user'], task_system, 'bedrock', .9, bedrock, demo_path)
+        bedrock_jsonl = ops.make_jsonl(use_case, prompt_system, request.form['meta_user'], request.form['task_system'], 'bedrock', .9, bedrock, demo_path)
         jobArns = ops.batchrock(use_case, bedrock_jsonl, bedrock_models_enumerated, random_string, key_path)
 
     else:
@@ -546,8 +546,6 @@ def check_enumerate_status(request):
 
             output_file_id= batch_response.output_file_id
 
-        print(output_file_ids)
-        print(len(output_file_ds))
         
         if completed == len(request.form['azure_job_id'].split(';')):
 
@@ -706,7 +704,6 @@ def check_iterate_status(request):
     output_file_ids = []
     batch_response = azure_client.batches.retrieve(request.form['azure_job_id'])
     azure_client.close()
-    print('batch_response: ' + str(batch_response))
     if batch_response.status == 'failed':
         return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
     elif batch_response.status == 'completed':

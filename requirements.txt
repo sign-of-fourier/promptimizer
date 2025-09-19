@@ -1,3 +1,4 @@
+chromadb
 more_itertools
 azure-ai-inference
 stripe

@@ -5,6 +5,7 @@ import os
 import re
 import openai
 import random
+import chromadb
 
 bucket = 'sagemaker-us-east-2-344400919253'
 
@@ -146,6 +147,120 @@ def get_embeddings(input_text, image=False):
     return E
 
 
+
+def get_image_embedding_paths():
+    s3 = boto3.client('s3')
+    paginator = s3.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=bucket, Prefix='kaggle/coco2012/embeddings')
+    image_embedding_paths = []
+    for page in pages:
+        if 'Contents' in page:
+            image_embedding_paths += [k['Key'] for k in page['Contents']]
+
+    return [re.sub('kaggle/coco2012/embeddings/', '', x) for x in image_embedding_paths]
+
+
+
+
+search_prompt = """I'm going to give you a query. Give me some search terms that I can use to search for related information. 
+  I'm going to try many searches. It's better to get too many and some of them are not right as opposed to too few and I fail to get the correct information.
+  So, it's OK to lots of terms as long as you think they are relevant.
+
+  Give your answer in a bracked list format like this:
+
+  ### EXAMPLE ###
+  QUERY: Images of children playing in the street.
+  ['playing children', 'children', 'playing']
+
+  Do not provide any other text or rationale. Only give a list of search terms.
+
+
+  ### QUERY ###
+  {}
+
+  """
+
+
+
+def get_search_terms(query):
+    messages = [{"role": "system", "content": "You are a data search agent. Your job is come up with key terms to use to search an archive of images indexed by captions.",
+                 "role": "user", "content": search_prompt.format(query)}]
+    azure_client = openai.AzureOpenAI(
+            api_key=os.environ['AZURE_OPENAI_KEY'],
+            api_version="2024-10-21",
+            azure_endpoint = os.environ["AZURE_ENDPOINT"]
+            )
+    response = azure_client.chat.completions.create(
+            model='gpt-4o',
+            messages = messages
+            )
+    return response.choices[0].message.content
+
+def get_starter_records(query, n_results):
+
+
+    try:
+        terms = eval(get_search_terms(query))
+    except Exception as e:
+        print(e)
+        print("Failed to get search terms")
+
+    client = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
+                          aws_secret_access_key=os.environ['AWS_SECRET_KEY'])
+    obj = client.get_object(Bucket=bucket, Key='kaggle/coco2012/annotations/captions_train2017.json')
+    train_captions = json.loads(obj['Body'].read().decode('utf-8'))
+
+    captions = {}
+    for k in train_captions['annotations']:
+        captions[k['image_id']] =  k['caption']
+    images = {}
+    for k in train_captions['images']:
+        images[k['id']] =  k['coco_url']
+
+
+    mbed_paths = get_image_embedding_paths()
+
+    chroma_client = chromadb.PersistentClient('chroma')
+    collection = chroma_client.get_collection(name="coco2017")
+    results = collection.query(
+            query_texts=terms,
+            n_results=n_results
+            )
+    relevant_images = {}
+    distance_by_image = {}
+    caption_by_image = {}
+    term_by_image = {}
+    for term in terms:
+        for idx, doc, dist, md in zip(results['ids'], results['documents'], results['distances'], results['metadatas']):
+            for i, c, t, m in zip(idx, doc, dist, md):
+                k = int(m['image_id'])
+                keep = False
+                if k in distance_by_image.keys():
+                    if distance_by_image[k] > t:
+                        keep = True
+                else:
+                    keep = True
+                if keep:
+                    image_stem = re.sub('http://images.cocodataset.org/', '', images[k])
+                    if re.sub('jpg', 'mbd', image_stem) in mbed_paths:
+                        term_by_image[k] = term
+                        distance_by_image[k] = t
+                        relevant_images[k] = image_stem
+                        caption_by_image[k] = c
+                    else:
+                        print(image_stem, images[k], k, mbed_paths[0])
+
+
+    keys = relevant_images.keys()
+    print(f'found {len(keys)} relevant images')
+    return pd.DataFrame({'id': [str(x) for x in keys],
+                         'term': [term_by_image[x] for x in keys],
+                         'distance': [distance_by_image[x] for x in keys],
+                         'caption': [caption_by_image[x] for x in keys],
+                         'image_name': [re.sub('http://images.cocodataset.org/', '', relevant_images[x]) for x in keys]}).sort_values('distance', ascending=True)
+
+
+
 def make_jsonl(use_case, prompt_system, prompt_user, task_system, model, temp, n_records, demo_path = None):
 
         
@@ -155,9 +270,17 @@ def make_jsonl(use_case, prompt_system, prompt_user, task_system, model, temp, n
             demo_true = demo_df[demo_df['output'] == True]
             demo_false = demo_df[demo_df['output'] == False]
             records = range(n_records)
-        elif use_case in ['rag', 'search']:
+        elif use_case == 'rag':
             corpus = pd.read_csv(demo_path)
             records = random.sample(range(corpus.shape[0]), n_records)
+        elif use_case == 'search':
+            #corpus = pd.read_csv(demo_path)
+            corpus = get_starter_records(task_system, 4)
+            print(corpus)
+            if corpus.shape[0] > n_records:
+                records = random.sample(range(corpus.shape[0]), n_records)
+            else:
+                records = range(corpus.shape[0])
 
         demonstrations = True
     else:
@@ -207,7 +330,7 @@ def make_jsonl(use_case, prompt_system, prompt_user, task_system, model, temp, n
                             }
                         }
         else:
-            query = bedrock_json("JOB_{}_RECORD_{}".format(model, i), system, user, samples, temp)
+            query = bedrock_json("JOB_{}_RECORD_{}".format(model, i), prompt_system, prompt_user, samples, temp)
         jsonl.append(json.dumps(query))
 
     return jsonl

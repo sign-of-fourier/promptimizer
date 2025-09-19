@@ -3,7 +3,7 @@ hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
 
 
 tworows = "<tr><td><b>{}</b></td><td>{}</td></tr>\n"
-
+tworows_no_bold = "<tr><td>{}</td><td>{}</td></tr>\n"
 threerows = "<tr><td><b>{}</b></td><td>{}</td><td>{}</td></tr>\n"
 
 
@@ -723,10 +723,11 @@ use_case_selector = """
                 </ol>
             </td>
             <td>
-                <b>Next Screens</b>
+                <b>Screen</b>
                 <ol start="5">
                     <font size="+1">
-                    <li>You will choose the corresponding metric on the next screen.</li>
+                    <li>Click submit to create the search space</li>
+
                     <li>Click submit to create the search space</li>
                     <li>After the search space is created, you will upload a file of labeled data to perform the optimization.</li>
                 </font>
@@ -862,10 +863,10 @@ use_case_selector = """
                     </td>
                     <td> &nbsp;
                     </td>
-                    <td> <a href="https://huggingface.co/datasets/rag-datasets/rag-mini-wikipedia">Hugging Face</a></td>
+                    <td> <a href="https://cocodataset.org">COCO</a></td>
                     <td> &nbsp; </td>
                     <td>
-                       <a href="/data/search.csv"> Mini Wiki</a>
+                       <a href="/data/image_names.csv">2017</a>
                     </td>
                     <td> &nbsp; </td>
                     <td> Evaluator </td>
@@ -887,25 +888,36 @@ use_case_selector = """
             <td></td>
             <td colspan=2>
                 <font size="+1">
-                <b>Notes regarding Defect Detection Tutorial:</b>
+                <b>Notes for <i>demonstrations</i>:</b>
                 <ul>
-                    <li>Defect Detection uses image data.</li>
-                    <li>Defect Detection is the only use case that uses <i>demonstrations</i>. Demonstrations are few shot examples to choose from when making a prompt. The Defect Detection tutorial also optimizes the choice of image to use in the few shot examples.</li>
-                    <li>On the next screen, there is a place to upload demonstrations. <b>Only upload demonstrations if selecting the Defect Detection use case.</b> </li>
-                    <li>The tutorial for Defection Detection must use only open AI models to enumerate the search space.</li>
+                    <li>Defect Detection uses image data in both prompt creation and as the traning set.</li>
+                    <li>Instead of creating instructions, <b>RAG</b> optimizes the examples used in the prompt with a <i>relevance agent</i>. The evaluation is the RAG query.</li>
+                    <li><b>Search</b> conducts an index query on the larger set, using (an AI enhanced) key term search query. Then uses the 
+                        <i>relevance agent</i> to find good choices. There is no evaluation.</li>
+                    <li>The tutorials for Defection Detection, RAG and Search must use only open AI models to enumerate the search space.</li>
                 </ul>
+            <td></td>
+        </tr>
+        <tr>
+            <td></td>
+            <td colspan=2>
                 <b>Notes when using your own prompts.</b><br>
                     &bull; The input file needs to have two columns labeled 'input' and 'output'.<br>
-                    &bull; If you're using RAG, prepare the input file <a href="/rag">accordingly.</a><br>
+                    &bull; Instead of the RAG,  tutorial, You can use RAG, to prepare the input file <a href="/rag">accordingly.</a><br>
                     &bull; There are three kinds of evaluators:
                     <ol><li>Accuracy - If target matches or not</li>
                         <li>AUC - probability must be from the following list: <i>'very unlikely', 'unlikely', 'equally likely and unlikely', 'likely', 'very likely'</i></li>
-                        <li>AI prompt - there will be an additional prompt that evaluates the input and the answer and gives a 'correct' or 'incorrect' verdict.</li></ol>
+                        <li>LLM Evaluator - there will be an additional prompt that evaluates the input and the answer and gives a 'correct' or 'incorrect' verdict.</li></ol>
                </font>
         </td>
         <td>
             &nbsp; &nbsp; &nbsp; &nbsp;
         </td>
+    </tr>
+    <tr>
+        <td></td>
+        <td colspan=2>For non Open AI models, you much choose 100 or more.</td>
+        <td></td>
     </tr>
 </table>
 </html>
