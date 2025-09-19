@@ -111,8 +111,9 @@ class dynamo_jobs:
 
         for k in self.initial_keys + self.other_keys + self.special_keys:
             if k not in P.keys():
-                return 'jobs::update missing ' + k
-            X[k] = P[k]
+                print('jobs::update missing ' + k)
+            else:
+                X[k] = P[k]
         return self.db.put_item(Item = X)
 
 
