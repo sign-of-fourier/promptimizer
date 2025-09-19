@@ -458,16 +458,16 @@ def create_batches(gpr, rollout_embeddings, n_batches, batch_size):
     return batch_idx, batch_mu, batch_sigma
 
 def get_best_batch(batch_mu, batch_sigma, n):
-
-    url = 'https://boaz.onrender.com/qei?y_best=.02&n=' + str(n)
-    data = {'k': ';'.join(batch_mu),
-            'sigma': '|'.join(batch_sigma)}
-    response = requests.post(url, json.dumps(data))
     try:
+        url = 'https://boaz.onrender.com/qei?y_best=.02&n=' + str(n)
+        data = {'k': ';'.join(batch_mu),
+                'sigma': '|'.join(batch_sigma)}
+        response = requests.post(url, json.dumps(data))
         boaz = eval(response.content.decode('utf-8'))
     except Exception as e:
-        print(e)
-        return(e)
+        print('Bayesian Issues': e)
+        print(batch_sigma)
+        return random.sample(range(len(batch_mu)))
     fboaz = [float(x) for x in boaz['scores'].split(',')]
     best = -1
     for i, mx in enumerate(fboaz):
