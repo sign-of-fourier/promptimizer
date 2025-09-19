@@ -285,7 +285,9 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     write_log('optimize (dynamo_jobs().get_jobs): ' + str(history))
     write_log('optimize (batch_response_id): ' + batch_response_id[0])
     history['iterations'].append(batch_response_id[0])
-    jdb.update(history)
+    print('optimize history')
+    print(history)
+    print(jdb.update(history))
 
     sidebar = "<table>" + webpages.tworows.format("Evaluator", parameters['evaluator'])+\
             webpages.tworows.format("Use Case", use_case)+\

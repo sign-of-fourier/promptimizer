@@ -143,8 +143,9 @@ def job_selector(email_address):
             user_jobs = ''
             for j, s, m, tt, u, i in zip(jobs['job_id'], jobs['setup_id'], jobs['meta_user'], 
                                          jobs['transaction_timestamp'], jobs['use_case'], jobs['iterations']):
-                if len(i) > 0:
-                    user_jobs += five_radio_job(int(j), s, m, tt, u)
+                print(j, s, ">", m[:8], "<", tt, u,i)
+                #if len(i) > 0:
+                user_jobs += five_radio_job(int(j), s, m, tt, u)
 
             response = make_response(webpages.load.format(css.style, webpages.navbar,'/load_job',
                                                           user_jobs, hidden_variables))
@@ -423,7 +424,7 @@ def enumerate_prompts():
     if use_case in ['rag', 'search']:
         job['separator'] = request.form['separator']
         job['task_system'] = request.form['task_system']
-    print(job)
+    print('enumerate_space',  job)
     job_status = jdb.initialize(job)
 
     write_log('enumerate_prompts (job_status): ' + str(job_status))
@@ -501,7 +502,6 @@ fourrows = "<tr><td><b>{}</b></td><td>{}</td><td>{}</td><td>{}</td></tr>\n"
 
 def check_enumerate_status(request):
 
-
     email_address = request.form['email_address']
     use_case = request.args.get('use_case')
     sidebar = pre_check_sidebar(request,use_case)
@@ -548,7 +548,7 @@ def check_enumerate_status(request):
 
         
         if completed == len(request.form['azure_job_id'].split(';')):
-
+            print('check_enumerate_status (output_file_id)', output_file_id, output_file_ids)
             for output_file_id in output_file_ids:
                 azure_prompts, usage = azure_file(output_file_id)
                 status = user_db.dynamo_usage().update({'email_address': email_address,
@@ -606,7 +606,6 @@ def check_enumerate_status(request):
         bedrock_status = ''
         bedrock_finished = 1
 
-
     hidden_variables = ''
 
     for v in ['label', 'evaluator', 'bedrock_models',
@@ -621,11 +620,9 @@ def check_enumerate_status(request):
             print('Not included in check status', v)
 
 
-
     write_log(f'check_enumerate_status (azure_finished, bedrock_finished): {azure_finished} {bedrock_finished}') 
     write_log('check_enumerate_staus: ' + str(len(azure_prompts)) + ' ' + str(len(bedrock_prompts)))
     if azure_finished & bedrock_finished:
-
 
         s3 = boto3.client(service_name="s3", aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                           aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
@@ -707,7 +704,6 @@ def check_iterate_status(request):
     if batch_response.status == 'failed':
         return batch_response.status + "<br>\n" + "\n".join([x.message for x in batch_response.errors.data])
     elif batch_response.status == 'completed':
-
         azure_prompts, usage = azure_file(batch_response.output_file_id)
         status = user_db.dynamo_usage().update({'email_address': request.form['email_address'],
                                                 'delta_tokens': -sum(usage['total_tokens']),
@@ -841,8 +837,6 @@ def pre_optimize():
         s3.put_object(Body="|".join(samples).encode('utf-8'),
                       Bucket=bucket, Key=request.form['key_path'] + '/examples/' + request.form['setup_id'] + '.jsonl')
 
-
-
     s3.put_object(Body="\n".join(E), Bucket=bucket, Key=request.form['key_path'] + '/embeddings/' + request.form['setup_id'] + '.mbd')
     s3.close()
 
@@ -862,6 +856,7 @@ def pre_optimize():
             
         else:
             print('pre_optimize missing', k)
+    print('pre_optimize updating job', job)
     db.update(job)
 
     return bbo.optimize(request.args.get('use_case'), range(4), X)
