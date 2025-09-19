@@ -465,9 +465,9 @@ def get_best_batch(batch_mu, batch_sigma, n):
         response = requests.post(url, json.dumps(data))
         boaz = eval(response.content.decode('utf-8'))
     except Exception as e:
-        print('Bayesian Issues': e)
+        print('Bayesian Issues:', e)
         print(batch_sigma)
-        return random.sample(range(len(batch_mu)))
+        return random.randint(0, len(batch_mu))
     fboaz = [float(x) for x in boaz['scores'].split(',')]
     best = -1
     for i, mx in enumerate(fboaz):
