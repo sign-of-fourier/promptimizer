@@ -206,7 +206,7 @@ review_loaded_file = """
 <form action="/bayes?use_case={}" method="POST" enctype="multipart/form-data">
 {}
 <br>
-<input type="hidden" name="n_batches" value="4096"></input>
+<input type="hidden" name="n_batches" value="512"></input>
 <input type="hidden" name="batch_size" value="4"></input>
 <input type="submit" value="Continue"></input>
 </form>
@@ -444,7 +444,7 @@ enumerate_prompts =  """
     </tr>
     {}
     <input type="hidden" name="batch_size" value="{}"></input>
-    <input type="hidden" name="n_batches" value="4096"></input>
+    <input type="hidden" name="n_batches" value="512"></input>
     <tr>
         <td></td>
         <td></td>

@@ -276,7 +276,7 @@ def make_jsonl(use_case, prompt_system, prompt_user, task_system, model, temp, n
         elif use_case == 'search':
             #corpus = pd.read_csv(demo_path)
             corpus = get_starter_records(task_system, 4)
-            print(corpus)
+            #print(corpus)
             if corpus.shape[0] > n_records:
                 records = random.sample(range(corpus.shape[0]), n_records)
             else:
