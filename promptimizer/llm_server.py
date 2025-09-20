@@ -700,6 +700,7 @@ def check_iterate_status(request):
             azure_endpoint = os.environ["AZURE_ENDPOINT"]
             )
     output_file_ids = []
+    print('azure_job_id', request.form['azure_job_id'])
     batch_response = azure_client.batches.retrieve(request.form['azure_job_id'])
     azure_client.close()
     if batch_response.status == 'failed':
