@@ -1,4 +1,4 @@
-from flask import Flask, send_file, send_from_directory, request, make_response
+from flask import Flask, Response,send_file, send_from_directory, request, make_response
 import pandas as pd
 import re
 import time
@@ -18,6 +18,7 @@ import os
 #import llm_ops
 #from matplotlib import pyplot as plt
 import numpy as np
+import requests
 #from sklearn.gaussian_process import GaussianProcessRegressor
 #from sklearn.gaussian_process.kernels import WhiteKernel, Matern, DotProduct
 #from scipy.stats import ecdf, lognorm
@@ -143,7 +144,7 @@ def job_selector(email_address):
             user_jobs = ''
             for j, s, m, tt, u, i in zip(jobs['job_id'], jobs['setup_id'], jobs['meta_user'], 
                                          jobs['transaction_timestamp'], jobs['use_case'], jobs['iterations']):
-                print(j, s, ">", m[:8], "<", tt, u,i)
+                #print(j, s, ">", m[:8], "<", tt, u,i)
                 #if len(i) > 0:
                 user_jobs += five_radio_job(int(j), s, m, tt, u)
 
@@ -859,6 +860,7 @@ def pre_optimize():
     print('pre_optimize updating job', job)
     db.update(job)
 
+
     return bbo.optimize(request.args.get('use_case'), range(4), X)
 
 
@@ -1227,5 +1229,26 @@ def pre_shop():
 
 
 
+@app.route("/image", methods=["GET"])
+def images():
+    directory = request.args.get('directory')
+    name = request.args.get('name')
+    url = f'http://images.cocodataset.org/{directory}/{name}.jpg'
 
+    target_url = f"http://images.cocodataset.org/{directory}/{name}.jpg"
+
+    resp = requests.request(
+        method=request.method,
+        url=target_url,
+        headers={k: v for k, v in request.headers if k.lower() != 'host'}, # Exclude 'Host' header
+        data=request.get_data(),
+        cookies=request.cookies,
+        allow_redirects=False
+    )
+
+    # Prepare the response for the client
+    excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+    headers = [(name, value) for name, value in resp.raw.headers.items() if name.lower() not in excluded_headers]
+
+    return Response(resp.content, resp.status_code, headers)
 

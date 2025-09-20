@@ -60,6 +60,7 @@ def score_prompts(use_case, filename_id, par):
     predictions = []
     prompt_ids = []
     record_ids = []
+    rationales = []
     completion_tokens = []
     total_tokens = []
     prompt_tokens = []
@@ -79,6 +80,10 @@ def score_prompts(use_case, filename_id, par):
                         content = json.loads(match.group(0))
                         if par['label'] in content.keys():
                             prediction = content[par['label']]
+                            if 'rationale' in content.keys():
+                                rationale = content['rationale']
+                            else:
+                                rationale = 'none'
                             #if ~np.isnan(prediction):
                             if use_case in ['rag', 'search']:
                                 prompt_ids.append(custom_ids_components[3])
@@ -92,19 +97,21 @@ def score_prompts(use_case, filename_id, par):
                             completion_tokens.append(usage['completion_tokens'])
                             prompt_tokens.append(usage['prompt_tokens'])
                             total_tokens.append(usage['total_tokens'])
-
+                            rationales.append(rationale)
 
                     except Exception as e:
-                        print(jsponse['response']['body']['choices'][0])
+                        #print(jsponse['response']['body']['choices'][0])
                         print(custom_ids_components)
                         print("failed response will be ignored.")
                         print(e)
                 else:
-                    print('no match', jsponse['response']['body']['choices'][0]['message']['content'])
+                    #print('no match', jsponse['response']['body']['choices'][0]['message']['content'])
+                    print('no match')
 
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
                                    'record_id': record_ids,
                                    'prediction': predictions,
+                                   'rationale': rationales,
                                    'usage': total_tokens})
     predictions_df.to_csv('s3://' + ops.bucket + '/' +par['key_path'] + '/predictions/' + par['setup_id'] + '.csv', index=False)
     if use_case not in ['rag', 'search']:
@@ -286,7 +293,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
     write_log('optimize (batch_response_id): ' + batch_response_id[0])
     history['iterations'].append(batch_response_id[0])
     print('optimize history')
-    print(history)
+    #print(history)
     print(jdb.update(history))
 
     sidebar = "<table>" + webpages.tworows.format("Evaluator", parameters['evaluator'])+\
@@ -317,7 +324,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
                                              'iterate', preview_data+hidden_variables+history, best_prompt)
 
 
-img = "<td><a href=\"http://images.cocodataset.org/{}\"><img src=\"http://images.cocodataset.org/{}\" height=100></img></a></td>\n"
+img = "<td><a href=\"{}\"><img src=\"{}\" height=100></img></a></td>\n"
 
 def bayes_pipeline(use_case, filename_id, par, stats):
 
@@ -384,7 +391,7 @@ def bayes_pipeline(use_case, filename_id, par, stats):
                 ct += 1
 
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
-    print('scores_by_prompt', scores_by_prompt)
+    #print('scores_by_prompt', scores_by_prompt)
 
     best = -1000
     s = [-1]
@@ -411,25 +418,36 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     performance_report += "</table>"
 
     if use_case == 'rag':
-        print(corpus['passage'].iloc[int(best_prompt_id)])
+        #print(corpus['passage'].iloc[int(best_prompt_id)])
         best_prompt = " &nbsp; <i>Best Passage So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(corpus['passage'].iloc[int(best_prompt_id)], max(Q))
     elif use_case == 'search':
         predictions = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'predictions', par['setup_id'] + '.csv']))
         predictions['score'] = [quantify_relevance(r) for r in predictions['prediction']]
+        if 'rationale' in predictions.columns:
+            rationales = predictions.sort_values('score', ascending=False)['rationale'].tolist()
+        else:
+            rationales = [''] * predictions.shape[0]
         best_prompt = '<table>'
-        for images in more_itertools.batched(predictions.sort_values('score', ascending=False).iloc[:4]['prompt_id'], 2):
-            best_prompt += '<tr>' + img.format(images[0], images[0]) + img.format(images[1], images[1])+ '</tr>'
+        def image_proxy(url):
+            stem = re.sub('.jpg', '', re.sub('http://images.cocodataset.org/', '', url)).split('/')
+            return '/image?directory=' + stem[0] + '&name=' + stem[1]
+
+        for images, rationale in zip(more_itertools.batched(predictions.sort_values('score', ascending=False).iloc[:4]['prompt_id'], 2),
+                                     more_itertools.batched(rationales[:4], 2)):
+            best_prompt += '<tr>' + img.format(image_proxy(images[0]), image_proxy(images[0]))+\
+                    img.format(image_proxy(images[1]), image_proxy(images[1]))+ '</tr>'+\
+                    webpages.tworows_no_bold.format(rationale[0], rationale[1])
         best_prompt += '</table>'
 
 
     else:
-        print(prompts[int(best_prompt_id)])
+        print('prompts', prompts[int(best_prompt_id)])
         best_prompt = " &nbsp; <i>Best Prompt So Far:</i> <hr>{}<hr>\nRaw Score: {}\n".format(prompts[int(best_prompt_id)], max(Q))
     if type(best_idx) != int:
         print('ERROR: best_idx not an integer')
         best_idx = random.sample(range(len(batch_idx)), 1)[0]
-    print(batch_idx[best_idx])
-    print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
+    print('best batch_idx', batch_idx[best_idx])
+    #print([unscored_embeddings_id_map[x] for x in batch_idx[best_idx]])
     return optimize(use_case, [unscored_embeddings_id_map[x] for x in batch_idx[best_idx]], X,
                     (performance_report, best_prompt, stats))
 
@@ -466,7 +484,8 @@ def get_best_batch(batch_mu, batch_sigma, n):
         boaz = eval(response.content.decode('utf-8'))
     except Exception as e:
         print('Bayesian Issues:', e)
-        print(batch_sigma)
+        print(response.content.decode('utf-8'))
+        #print(batch_sigma)
         return random.randint(0, len(batch_mu))
     fboaz = [float(x) for x in boaz['scores'].split(',')]
     best = -1
