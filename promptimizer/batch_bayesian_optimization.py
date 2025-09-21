@@ -13,6 +13,7 @@ from scipy.stats import norm
 import pandas as pd
 from promptimizer import ops, user_db, css, webpages 
 import boto3
+import time
 import numpy as np
 import datetime
 import pickle
@@ -162,26 +163,27 @@ def llm_evaluation(use_case, relevance_df, rag_path, question):
     if use_case == 'rag':
         evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
 
-
-
         few_shot = [snippets.iloc[int(x)]['passage'] for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']]
         references = "\n------\n".join(few_shot)
         messages = [{"role": "system", "content": "Be helpful.",
                      "role": "user", "content": "\n".join([evaluator_prompt, "\n", "### QUESTION ###", question, "\n", '### REFERENCES ###',
                                                            "\n", references ])}]
-        azure_client = openai.AzureOpenAI(
-                api_key=os.environ['AZURE_OPENAI_KEY'],
-                api_version="2024-10-21",
-                azure_endpoint = os.environ["AZURE_ENDPOINT"]
-                )
-        response = azure_client.chat.completions.create(
-                model='gpt-4o',
-                messages = messages
-                )
-        azure_client.close()
-        report = '<b>Question</b>'+question+'<br><b>Answer to question using this sample</b><br>' +  response.choices[0].message.content
-    elif use_case == 'search':
-        report =  '<b>Query </b>'+question
+    else:
+        evaluator_prompt = "I'm going to give you a goal of an ad campaign and an image. Give me caption that goes with image that fits the goal of the ad campaign. Do not introduce your text or give any other context. Only give me your caption text."
+        messages = [{"role": "system", "content": "Be helpful.",
+                     "role": "user", "content": "\n".join([evaluator_prompt, "\n", "### AD CAMPAIGN DESCRIPTION ###", question])}]
+    azure_client = openai.AzureOpenAI(
+            api_key=os.environ['AZURE_OPENAI_KEY'],
+            api_version="2024-10-21",
+            azure_endpoint = os.environ["AZURE_ENDPOINT"]
+            )
+    response = azure_client.chat.completions.create(
+            model='gpt-4o',
+            messages = messages
+            )
+    azure_client.close()
+
+    report = '<b>Query -+ </b>'+question+'<br><b>Result with this sample</b><br>' +  response.choices[0].message.content
 
     return relevance_score, report
 
@@ -363,9 +365,7 @@ def bayes_pipeline(use_case, filename_id, par, stats):
                 ct += 1
     elif use_case == 'search':
         obj = s3.get_object(Bucket=ops.bucket, Key='kaggle/coco2012/consolidated_embeddings.json')
-   
         E = pickle.loads(obj['Body'].read())
-        
         ct = 0
         print(len(E), ' embeddings')
         for e in E.keys():
@@ -374,8 +374,6 @@ def bayes_pipeline(use_case, filename_id, par, stats):
                 unscored_embeddings_id_map[ct] = e
                 ct += 1
         scored_embeddings = [E[k] for k in scores_by_prompt.keys()]
-
-
     else:
         obj = s3.get_object(Bucket=ops.bucket, Key=par['key_path']+'/output/'+par['setup_id'] + '/consolidated.csv')
         prompts = obj['Body'].read().decode('utf-8').split("|")
@@ -410,7 +408,9 @@ def bayes_pipeline(use_case, filename_id, par, stats):
 
     batch_idx, batch_mu, batch_sigma = create_batches(gpr, unscored_embeddings, int(par['n_batches']), int(par['batch_size']))
     try:
+        start = time.time()
         best_idx = get_best_batch(batch_mu, batch_sigma, par['batch_size'])
+        print('spent', time.time() - start, 'getting best batch')
     except Exception as e:
         print(e)
         print('might have the wrong evaluation function', par['evaluator'])
