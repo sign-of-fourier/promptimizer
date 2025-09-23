@@ -65,17 +65,17 @@ def prompt_preview():
 
     if use_case == 'defect_detector':
         use_case_specific += webpages.prompt_preview_input.format('<b>Demonstrations</b> for enumerating space')+\
-        hidden.format('task_system', prompt_library.task_system)
+        hidden.format('task_system', prompt_library.task_system)+\
+        hiddeh.format('evalutaor_prompt', prompt_library.evaluator_prompt)
+    elif use_case in ['rag', 'search']:
+        use_case_specific += webpages.prompt_preview_input.format('<b>Examples</b> (Image urls or rag text)')+\
+                padded_tworows.format('Query', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')+\
+                padded_tworows.format('LLM Evaluation', '<input type=text name="evaluator_prompt" value="'+prompt_library.evaluator_prompt + '"></input>')
 
-    elif use_case == 'rag':
-        use_case_specific += webpages.prompt_preview_input.format('<b>Corpus</b> for RAG')+\
-                padded_tworows.format('Question', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
-    elif use_case == 'search':
-        use_case_specific += webpages.prompt_preview_input.format('<b>Urls</b> of Images')+\
-                padded_tworows.format('Query', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')
 
     else:
-        use_case_specific += hidden.format('task_system', prompt_library.task_system)
+        use_case_specific += hidden.format('evaluator_prompt', prompt_library.evaluator_prompt)+\
+                hidden.format('task_system', prompt_library.task_system)
 
     if use_case in ['rag', 'search']:
         batch_size = 10
@@ -95,7 +95,8 @@ bucket = 'sagemaker-us-east-2-344400919253'
 def model_and_hidden(X, use_case):
 
     use_case_specific = hidden.format('separator', X['separator'])+\
-            hidden.format('task_system', X['task_system'])
+            hidden.format('task_system', X['task_system'])+\
+            hidden.format('evaluator_prompt', X['evaluator_prompt'])
 
     if use_case == 'defect_detector':
         use_case_specific += webpages.demonstrations_input
@@ -203,9 +204,8 @@ def load_job():
             azure_client.close()
 
             for h in db.initial_keys + db.other_keys:
-                if h in ['meta_user', 'meta_system', 'task_system', 'separator']:
+                if h in ['meta_user', 'meta_system', 'evaluator_prompt', 'task_system', 'separator']:
                     hx = ' '.join([z.capitalize() for z in h.split('_')])
-
                     if h == 'separator':
                         prompts += tworows.format(hx, job[h]) + '<tr><td> &nbsp; </td><td> &nbsp; </td></tr>'
                     else:
@@ -273,7 +273,7 @@ def view_prompts():
         user_prompts = ''
         hidden_variables = hidden.format('email_address', email_address) + hidden.format('password', password)
 
-        for pid, user, system, u in zip(user_library['prompt_id'], user_library['meta_user'], user_library['meta_system'],
+        for pid, user, system, u in zip(user_library['prompt_id'], user_library['meta_user'], user_library['meta_system'], user_library['evaluator_prompt'],
                                         user_library['use_case']):
 
             user_prompts += five_radio_prompt(pid, user, system, u)
@@ -304,14 +304,14 @@ def enumerate_prompts():
         email_address = request.cookies.get('quante_carlo_email')
         password = request.cookies.get('quante_carlo_password')
         for k in ['meta_user', 'meta_system', 'separator', 'label',
-                  'task_system', 'evaluator']:
+                  'task_system', 'evaluator', 'evaluator_prompt']:
             S[k] = [request.form[k]]
 
         save_status, status = prompt_manager({'email_address': request.form['email_address'], 
                                               'password': request.form['password'], 'new_prompt': S}, 'save_prompt')
         
         use_case_specific, model_section = model_and_hidden(request.form, use_case)
- 
+       
         if status == 209:
             save_status = webpages.email_and_password + save_status
         else:
@@ -393,7 +393,7 @@ def enumerate_prompts():
     bedrock_models_enumerated = {}
     total_calls = 0
     sidebar = "<table><tr><td colspan=2><b>Models</b></td></tr>\n"
-
+    print('enumerate prompts again', request.form.keys())
     azure_jsonls = []
     bedrock = 0
     max_records = 0
@@ -419,7 +419,7 @@ def enumerate_prompts():
 
     jdb = user_db.dynamo_jobs()
     job = {"email_address": request.form['email_address'], 'meta_system': request.form['meta_system'],
-           "setup_id": random_string, 'meta_user': request.form['meta_user'], 'use_case': use_case,
+           "setup_id": random_string, 'evaluator_prompt': request.form['evaluator_prompt'], 'meta_user': request.form['meta_user'], 'use_case': use_case,
            'key_path': key_path, 'demonstrations': demonstrations}
 
     if use_case in ['rag', 'search']:
@@ -449,7 +449,7 @@ def enumerate_prompts():
             hidden.format('azure_file_id', ';'.join(azure_file_ids))+\
             hidden.format('setup_id', random_string)+hidden.format('key_path', key_path)
     for h in ['separator', 'label', 'evaluator', 'task_system', 'n_batches', 
-              'batch_size', 'email_address']:
+              'batch_size', 'email_address', 'evaluator_prompt']:
         if h in request.form.keys():
             hidden_variables += hidden.format(h, request.form[h])
         else:
@@ -694,6 +694,7 @@ def check_iterate_status(request):
     sidebar = pre_check_sidebar(request, use_case)
     azure_prompts = []
     
+    print('check_iterate_status', request.form.keys())
     azure_client = openai.AzureOpenAI(
             api_key=os.environ['AZURE_OPENAI_KEY'],
             api_version="2024-10-21",
@@ -732,7 +733,7 @@ def check_iterate_status(request):
         hidden_variables = ''
         for v in ['label', 'batch_size', 'n_batches', 'key_path', 'task_system',
                   'setup_id', 'filename_ids', 'azure_file_id', 'separator',
-                  'azure_job_id', 'evaluator', 'email_address']:
+                  'azure_job_id', 'evaluator', 'evaluator_prompt', 'email_address']:
             if v in request.form.keys():
                 hidden_variables += hidden.format(v, request.form[v])
             else:

@@ -126,7 +126,7 @@ def score_prompts(use_case, filename_id, par):
         return auc(predictions_df, truth)
     elif par['evaluator'].lower() == 'prompt':
         return llm_evaluation(use_case, predictions_df, '/'.join(['s3:/', ops.bucket, par['key_path'], 'output', 
-                                                                  par['setup_id'], 'demonstrations.csv']), par['task_system'])
+                                                                  par['setup_id'], 'demonstrations.csv']), par['task_system'], par['evaluator_prompt'])
     else:
         write_log("score_prompts: ERROR No evaluator")
         return "ERROR", "No Evaluator"
@@ -147,7 +147,7 @@ def auc(predictions_df, truth):
         performance_report += webpages.threerows.format(k, prompt_auc[k], tokens[k])
     return prompt_auc, performance_report +'</table>'
 
-def llm_evaluation(use_case, relevance_df, rag_path, question):
+def llm_evaluation(use_case, relevance_df, rag_path, question, evaluator_prompt):
 
     relevance_score = {}
     relevance_scores = []
@@ -161,7 +161,7 @@ def llm_evaluation(use_case, relevance_df, rag_path, question):
     snippets = pd.read_csv(rag_path)
 
     if use_case == 'rag':
-        evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
+   #     evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
 
         few_shot = [snippets.iloc[int(x)]['passage'] for x in relevance_df.sort_values('relevance', ascending=False).iloc[:4]['prompt_id']]
         references = "\n------\n".join(few_shot)
@@ -169,7 +169,7 @@ def llm_evaluation(use_case, relevance_df, rag_path, question):
                      "role": "user", "content": "\n".join([evaluator_prompt, "\n", "### QUESTION ###", question, "\n", '### REFERENCES ###',
                                                            "\n", references ])}]
     else:
-        evaluator_prompt = "I'm going to give you a goal of an ad campaign and an image. Give me caption that goes with image that fits the goal of the ad campaign. Do not introduce your text or give any other context. Only give me your caption text."
+    #    evaluator_prompt = "I'm going to give you a goal of an ad campaign and an image. Give me caption that goes with image that fits the goal of the ad campaign. Do not introduce your text or give any other context. Only give me your caption text."
         messages = [{"role": "system", "content": "Be helpful.",
                      "role": "user", "content": "\n".join([evaluator_prompt, "\n", "### AD CAMPAIGN DESCRIPTION ###", question])}]
     azure_client = openai.AzureOpenAI(

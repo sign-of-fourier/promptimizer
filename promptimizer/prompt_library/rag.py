@@ -14,4 +14,7 @@ separator = '### QUESTION ###'
 label_name="relevance"
 
 
+evaluator_prompt = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
+
+
 
