@@ -203,12 +203,12 @@ review_loaded_file = """
 {}
 <hr>
 {}
-<form action="/bayes?use_case={}" method="POST" enctype="multipart/form-data">
+<form id="promptimizer_form" action="/bayes?use_case={}" method="POST" enctype="multipart/form-data">
 {}
 <br>
 <input type="hidden" name="n_batches" value="1024"></input>
 <input type="hidden" name="batch_size" value="4"></input>
-<input type="submit" value="Continue"></input>
+<input id="submit" type="submit" value="Continue"></input>
 </form>
 
 </div>
@@ -231,7 +231,7 @@ optimize_form = """<html>
         <td colspan=2>{}</td>
         <td>  &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </td></tr>
     <tr>
-        <form action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
+        <form id="promptimizer_form" action="/optimize?use_case={}" method="POST" enctype="multipart/form-data">
         {}
     </tr>
         <tr>
@@ -255,7 +255,7 @@ optimize_form = """<html>
         <td><input type="text" name="task_system" rows=3 value="{}"></input></td>
         <td></td>
     </tr>
-    
+    <!--
     <tr>
         <td></td>
                 <td>
@@ -268,10 +268,11 @@ optimize_form = """<html>
                 </td>
         <td></td>
     </tr>
+    -->
     <tr>
         <td></td>
         <td>
-            <input type="submit" value="Optimize!"></input>
+            <input id="submit" type="submit" value="Optimize!"></input>
         </td>
         <td></td>
         <td></td>
@@ -295,7 +296,7 @@ check_status_form = """<html>
 <div class="column left">
 {}
 </div>
-<form action="/check_status?use_case={}&next_action={}" method="POST" enctype="multipart/form-data">
+<form id="promptimizer_form" action="/check_status?use_case={}&next_action={}" method="POST" enctype="multipart/form-data">
 
 <div class="column middle">
   <div class="column middle_top">
@@ -307,7 +308,7 @@ check_status_form = """<html>
   </div>
 
   <div class="column middle_bottom">
-  <input type="submit" value="Check Status"></input>
+  <input id="submit" type="submit" value="Check Status"></input>
   </div>
   </form>
 </div>
@@ -364,7 +365,7 @@ enumerate_prompts =  """
 <div class="column row"></div>
 <div class="column small"></div>
 <div class="column middle_big">
-<form action="/enumerate_prompts?use_case={}" method="POST"  enctype="multipart/form-data">
+<form id="promptimizer_form" action="/enumerate_prompts?use_case={}" method="POST"  enctype="multipart/form-data">
 
  <div class="shaded">
  <table border=0>
@@ -448,7 +449,7 @@ enumerate_prompts =  """
     <tr>
         <td></td>
         <td></td>
-        <td><input type="submit" name="submit" value="Submit"></input>
+        <td><input id="submit" type="submit" name="submit" value="Submit"></input>
         <input type="submit" name="submit" value="Save"></input>
         <td></td>
     </tr>
@@ -458,6 +459,7 @@ enumerate_prompts =  """
 </div>
 <div class="column small"></div></form>
 <div class="column row"></div>
+{}
 """
 view_jobs = """
 
@@ -643,11 +645,12 @@ sign_up = """<html>
       </td>
     </tr>
 </table>
+</form><br><font = size="+1">
+Request a <a href="https://www.quantecarlo.com/get-started">Free Trial</a></font>
+<br>Or email us at <a href="mailto:info@quantecarlo.com">info@quantecarlo.com</a>
 </div>
+<div class="column small"</div>
 </div>
-<div class="column small"></div>
-</form>
-
 </html>
 """
 

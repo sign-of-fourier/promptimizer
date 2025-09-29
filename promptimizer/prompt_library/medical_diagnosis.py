@@ -16,3 +16,4 @@ Do not introduce your prompt or provide any other text.
 separator = "### PATIENTS SYMPTOMS ###"
 task_system = "You are a physician's assistant. Your job is to provide assistance in medical diagnosis based on a patient's symptoms."
 label_name="disease"
+evaluator_prompt = ''

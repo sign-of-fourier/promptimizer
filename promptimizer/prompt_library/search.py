@@ -12,6 +12,5 @@ task_system = "Children playing games outside, preferably somewhere other than t
 separator = '### IMAGE ###'
 #task_system = "I'm going to ask you a question. Before I give you the question, I am going to also give you some reference material. The reference material is based on a search of a corpus. It may or may not be relevant. It may help you answer the question."
 label_name="relevance"
-
-
+evaluator_prompt = "I'm going to give you a goal of an ad campaign and an image. Give me caption that goes with image that fits the goal of the ad campaign. Do not introduce your text or give any other context. Only give me your caption text."
 
