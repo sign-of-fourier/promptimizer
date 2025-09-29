@@ -205,6 +205,15 @@ img {
 
 
 </style>
+"""
 
-
+script = """<script>
+document.getElementById('promptimizer_form').addEventListener('submit', function(event) {
+  document.getElementById('submit').disabled = true;
+  document.getElementById('submit').textContent = 'Submitting...';
+  submit();
+  //event.preventDefault();
+  //form.submit();
+});
+</script>
 """

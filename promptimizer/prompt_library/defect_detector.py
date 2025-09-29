@@ -6,11 +6,12 @@ Tell the language model to rate the probability that the casting is defective us
 "rationale": "There appears to be damage around the edges of the casting. Although it is warped, that is not a condition of a defect.",
 "probability": "likely"
 }
-evaluator_prompt = ''
+
 Do not introduce your prompt.
 Do not label where the image should go. I will be appended to your instructions with its own label.
 Do not provide any other text or formatting. Only provide the prompt.
 """
+evaluator_prompt = ''
 label_name = "probability"
 separator = "Not used for images"
 task_system = 'You are a quality control inspector. Your job is to determine if a casting is defective by looking at an image.'

@@ -66,7 +66,7 @@ def prompt_preview():
     if use_case == 'defect_detector':
         use_case_specific += webpages.prompt_preview_input.format('<b>Demonstrations</b> for enumerating space')+\
         hidden.format('task_system', prompt_library.task_system)+\
-        hiddeh.format('evalutaor_prompt', prompt_library.evaluator_prompt)
+        hidden.format('evalutaor_prompt', prompt_library.evaluator_prompt)
     elif use_case in ['rag', 'search']:
         use_case_specific += webpages.prompt_preview_input.format('<b>Examples</b> (Image urls or rag text)')+\
                 padded_tworows.format('Query', '<input type=text name="task_system" value="'+prompt_library.task_system+'"></input>')+\
@@ -83,7 +83,8 @@ def prompt_preview():
         batch_size = 4
     return webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case, 
                                              prompt_library.meta_system, prompt_library.meta_user, 
-                                             prompt_library.label_name, use_case_specific, model_section, webpages.email_and_password, batch_size)
+                                             prompt_library.label_name, use_case_specific, model_section, 
+                                             webpages.email_and_password, batch_size, css.script)
 
 
 hidden = "<input type=\"hidden\" name=\"{}\" value=\"{}\"></input>\n"
@@ -297,46 +298,48 @@ def enumerate_prompts():
     use_case = request.args.get('use_case', '')
     print('enumerate_prompts (request.form.keys())', request.form.keys())
 
-    if request.form['submit'] == 'Save':
+#    if request.form['submit'] == 'Save':
 
-        S = {'use_case': [use_case], 'setup_id': 'None'}
+#    S = {'use_case': [use_case], 'setup_id': 'None'}
 
-        email_address = request.cookies.get('quante_carlo_email')
-        password = request.cookies.get('quante_carlo_password')
-        for k in ['meta_user', 'meta_system', 'separator', 'label',
-                  'task_system', 'evaluator', 'evaluator_prompt']:
-            S[k] = [request.form[k]]
-
-        save_status, status = prompt_manager({'email_address': request.form['email_address'], 
-                                              'password': request.form['password'], 'new_prompt': S}, 'save_prompt')
+#    email_address = request.cookies.get('quante_carlo_email')
+#    password = request.cookies.get('quante_carlo_password')
+#    for k in ['meta_user', 'meta_system', 'separator', 'label',
+#              'task_system', 'evaluator', 'evaluator_prompt']:
+#        S[k] = [request.form[k]]
+#    save_status, status = prompt_manager({'email_address': request.form['email_address'], 
+#                                          'password': request.form['password'], 'new_prompt': S}, 'save_prompt')
         
-        use_case_specific, model_section = model_and_hidden(request.form, use_case)
+#    use_case_specific, model_section = model_and_hidden(request.form, use_case)
        
-        if status == 209:
-            save_status = webpages.email_and_password + save_status
-        else:
-            use_case_specific += hidden.format('email_address', request.form['email_address'])+\
-                    hidden.format('password', request.form['password'])
+#    if status == 209:
+#        save_status = webpages.email_and_password + save_status
+#    else:
+#        use_case_specific += hidden.format('email_address', request.form['email_address'])+\
+#                hidden.format('password', request.form['password'])
 
-        if use_case == 'rag':
-            batch_size = 32
-        else:
-            batch_size = 4
-        response =  make_response(webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case,
-                                                                    request.form['meta_system'], request.form['meta_user'], 
-                                                                    request.form['label'], use_case_specific, model_section, 
-                                                                    save_status, batch_size))
-        if status != 209:
-            response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
-            response.set_cookie('quante_carlo_password', request.form['password'], max_age=1800)
+#    if use_case == 'rag':
+#        batch_size = 32
+#    else:
+#        batch_size = 4
+#    response =  make_response(webpages.enumerate_prompts.format(css.style, webpages.navbar, use_case,
+#                                                                request.form['meta_system'], request.form['meta_user'], 
+#                                                                request.form['label'], use_case_specific, model_section, 
+#                                                                save_status, batch_size))
+#    if status != 209:
+#        response.set_cookie('quante_carlo_email', request.form['email_address'], max_age=3600)
+#        response.set_cookie('quante_carlo_password', request.form['password'], max_age=1800)
 
-        return response
-
+#        return response
+#    else:
+#        print('else')
 
     random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+    print(random_string)
+
     timestamp = datetime.datetime.today()
     key_path = 'batch_jobs/promptimizer/'+use_case+'/' + str(timestamp)[:10]
-
+    print(key_path)
      
     write_log('enumerate_prompts  2 (request.files.keys): ' + str(request.files.keys()))
     if 'demonstrations' in request.files.keys():
@@ -610,7 +613,7 @@ def check_enumerate_status(request):
     hidden_variables = ''
 
     for v in ['label', 'evaluator', 'bedrock_models',
-              'azure_models', 
+              'azure_models', 'evaluator_prompt', 
               'batch_size', 'n_batches', 'key_path',
               'jobArn', 'setup_id', 'filename_ids', 'azure_file_id',
               'azure_job_id', 'email_address']:
@@ -618,7 +621,7 @@ def check_enumerate_status(request):
             if request.form[v] != 'not applicable':
                 hidden_variables += hidden.format(v, request.form[v])
         else:
-            print('Not included in check status', v)
+            print('Not included in check enumerate status', v)
 
 
     write_log(f'check_enumerate_status (azure_finished, bedrock_finished): {azure_finished} {bedrock_finished}') 
@@ -737,7 +740,7 @@ def check_iterate_status(request):
             if v in request.form.keys():
                 hidden_variables += hidden.format(v, request.form[v])
             else:
-                print('Not included in check status', v)
+                print('Not included in check iterate status', v)
 
         return webpages.waiting.format(css.style, webpages.navbar, sidebar + '</table>',
                                        f'<table> {azure_status}</table>',
@@ -821,28 +824,26 @@ def pre_optimize():
     X = {}
     for x in request.form.keys():
          X[x] = request.form[x]
+    if 'examples' in request.files.keys():
+        if request.files['examples'].filename:
+            write_log('I see examples ' + request.files['examples'].filename)
+            s3.put_object(Body=request.files['examples'].stream.read(),
+                           Bucket=bucket, Key=request.form['key_path'] + '/examples/' + request.form['setup_id'] + '.csv')
 
-    if request.files['examples'].filename:
-        write_log('I see examples ' + request.files['examples'].filename)
-        s3.put_object(Body=request.files['examples'].stream.read(),
-                       Bucket=bucket, Key=request.form['key_path'] + '/examples/' + request.form['setup_id'] + '.csv')
+            demo_df = pd.read_csv('s3://' + ops.bucket + '/' + request.form['key_path'] + '/examples/' + request.form['setup_id'] + '.csv')
 
-        demo_df = pd.read_csv('s3://' + ops.bucket + '/' + request.form['key_path'] + '/examples/' + request.form['setup_id'] + '.csv')
+            demo_true = demo_df[demo_df['output'] == True]
+            demo_false = demo_df[demo_df['output'] == False]
 
-        demo_true = demo_df[demo_df['output'] == True]
-        demo_false = demo_df[demo_df['output'] == False]
+            samples = []
+            for x in range(len(prompts)):
+                samples.append(json.loads([{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
+                        [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]))
 
-        samples = []
-        for x in range(len(prompts)):
-            samples.append(json.loads([{"type": "image_url","image_url": { "url": s }  } for s in demo_true['input'].sample(2)] + \
-                    [{"type": "image_url","image_url": { "url": s }  } for s in demo_false['input'].sample(2)]))
-
-        s3.put_object(Body="|".join(samples).encode('utf-8'),
-                      Bucket=bucket, Key=request.form['key_path'] + '/examples/' + request.form['setup_id'] + '.jsonl')
-
+            s3.put_object(Body="|".join(samples).encode('utf-8'),
+                          Bucket=bucket, Key=request.form['key_path'] + '/examples/' + request.form['setup_id'] + '.jsonl')
     s3.put_object(Body="\n".join(E), Bucket=bucket, Key=request.form['key_path'] + '/embeddings/' + request.form['setup_id'] + '.mbd')
     s3.close()
-
     db = user_db.dynamo_jobs()
     job = db.get_job(request.form)
     write_log('enumerate (request.job.keys) :' + str(request.form.keys()))
@@ -850,9 +851,13 @@ def pre_optimize():
         if k in request.form.keys():
             job[k] = request.form[k]
         elif k == 'examples':
-            if request.files[k].filename:
-                job[k] = request.files[k].filename
-                X['examples'] = request.files[k].filename
+            if 'examples' in request.files.keys():
+                if request.files[k].filename:
+                    job[k] = request.files[k].filename
+                    X['examples'] = request.files[k].filename
+                else:
+                    job[k] = ''
+                    X['examples'] = ''
             else:
                 job[k] = ''
                 X['examples'] = ''

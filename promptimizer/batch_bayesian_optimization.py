@@ -18,6 +18,7 @@ import numpy as np
 import datetime
 import pickle
 import more_itertools
+import asyncio
 
 def write_log(message):
     print(message)
@@ -75,7 +76,7 @@ def score_prompts(use_case, filename_id, par):
                 jsponse = json.loads(raw)
                 custom_ids_components = jsponse['custom_id'].split('_')
                 match = re.search(r'(\{.*\})', jsponse['response']['body']['choices'][0]['message']['content'], re.DOTALL)
-
+                #print(jsponse['response']['body']['choices'][0]['message']['content'])
                 if match:
                     try:
                         content = json.loads(match.group(0))
@@ -99,6 +100,10 @@ def score_prompts(use_case, filename_id, par):
                             prompt_tokens.append(usage['prompt_tokens'])
                             total_tokens.append(usage['total_tokens'])
                             rationales.append(rationale)
+                        else:
+                            print('label not in keys')
+                            print(jsponse['response']['body']['choices'][0]['message']['content'])
+
 
                     except Exception as e:
                         #print(jsponse['response']['body']['choices'][0])
@@ -108,7 +113,7 @@ def score_prompts(use_case, filename_id, par):
                 else:
                     #print('no match', jsponse['response']['body']['choices'][0]['message']['content'])
                     print('no match')
-
+    print(ct)
     predictions_df = pd.DataFrame({'prompt_id': prompt_ids,
                                    'record_id': record_ids,
                                    'prediction': predictions,
@@ -308,7 +313,7 @@ def optimize(use_case, prompt_ids, parameters, performance_report = ()):
 
     for k in ['setup_id', 'key_path', 'setup_id', 'evaluator', 'label',
               'n_batches', 'batch_size', 'separator', 'task_system',
-              'filename_ids', 'email_address', 'examples']:
+              'filename_ids', 'email_address', 'examples', 'evaluator_prompt']:
         if k in parameters.keys():
             hidden_variables += webpages.hidden.format(k, parameters[k])
         else:
@@ -347,10 +352,8 @@ def bayes_pipeline(use_case, filename_id, par, stats):
     s3 = boto3.client('s3', aws_access_key_id=os.environ['AWS_ACCESS_KEY'],
                        aws_secret_access_key=os.environ['AWS_SECRET_KEY'], region_name='us-east-2')
 
-
     unscored_embeddings = []
     unscored_embeddings_id_map = {}
-
 
     if use_case == 'rag':
         corpus = pd.read_csv('/'.join(['s3:/', ops.bucket, par['key_path'], 'output', par['setup_id'], 'demonstrations.csv']))
@@ -387,9 +390,10 @@ def bayes_pipeline(use_case, filename_id, par, stats):
                 unscored_embeddings.append(embeddings_raw[x])
                 unscored_embeddings_id_map[ct] = x
                 ct += 1
-
+    if len(scores_by_prompt.keys()) < 1:
+        return 'scoring failed'
     Q = [scores_by_prompt[k] for k in scores_by_prompt.keys()]
-    #print('scores_by_prompt', scores_by_prompt)
+    print('scores_by_prompt', scores_by_prompt)
 
     best = -1000
     s = [-1]
@@ -401,16 +405,26 @@ def bayes_pipeline(use_case, filename_id, par, stats):
 
     gpr = GaussianProcessRegressor(kernel = Matern() + WhiteKernel())
     scores_ecdf = ecdf(Q)
-
     transformed_scores = np.log(lognorm.ppf(scores_ecdf.cdf.evaluate(Q) * .999 + .0005, 1))
     gpr.fit(scored_embeddings, transformed_scores)
     mu, sigma = gpr.predict(unscored_embeddings, return_cov=True)
 
     batch_idx, batch_mu, batch_sigma = create_batches(gpr, unscored_embeddings, int(par['n_batches']), int(par['batch_size']))
     try:
+        best_y = max(transformed_scores)
         start = time.time()
-        best_idx = get_best_batch(batch_mu, batch_sigma, par['batch_size'])
-        print('spent', time.time() - start, 'getting best batch')
+        #print('best_mu:', best_y)
+        best_idx = get_best_batch(batch_mu, batch_sigma, best_y, par['batch_size'])
+        #print('spent', time.time() - start, 'getting best batch')
+
+        #bob_mu = [x for x in more_itertools.batched(batch_mu, 4)]
+        #bob_sigma = [x for x in more_itertools.batched(batch_sigma, 4)]
+        #loop = asyncio.new_event_loop()
+        #tasks = [loop.create_task(get_best_batch(m, s, par['batch_size'])) for m, s in zip(bob_mu, bob_sigma)]
+        #loop.run_until_complete(asyncio.wait(tasks))
+        #loop.close()
+        
+
     except Exception as e:
         print(e)
         print('might have the wrong evaluation function', par['evaluator'])
@@ -475,9 +489,13 @@ def create_batches(gpr, rollout_embeddings, n_batches, batch_size):
         batch_sigma.append(';'.join(sigma))
     return batch_idx, batch_mu, batch_sigma
 
-def get_best_batch(batch_mu, batch_sigma, n):
+def get_best_batch(batch_mu, batch_sigma, y_best, n, gpu=False):
     try:
-        url = 'https://boaz.onrender.com/qei?y_best=.02&n=' + str(n)
+        #url = 'https://boaz.onrender.com/qei?y_best=.02&n=' + str(n)
+        if gpu:
+            url = f'http://34.130.49.1:5000/gpu_qei?y_best={y_best}&n={n}'
+        else:
+            url = f'https://boaz.onrender.com/qei?y_best={y_best}&n={n}'
         data = {'k': ';'.join(batch_mu),
                 'sigma': '|'.join(batch_sigma)}
         response = requests.post(url, json.dumps(data))
